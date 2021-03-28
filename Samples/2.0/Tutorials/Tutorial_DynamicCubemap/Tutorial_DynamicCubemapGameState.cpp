@@ -156,12 +156,8 @@ namespace Demo
             workspaceDef->connectExternal( 0, cubemapRendererNode, 0 );
         }
 
-        ResourceLayoutMap initialCubemapLayouts;
-        ResourceAccessMap initialCubemapUavAccess;
-        mDynamicCubemapWorkspace =
-                compositorManager->addWorkspace( sceneManager, cubemapExternalChannels, mCubeCamera,
-                                                 workspaceName, true, -1, (UavBufferPackedVec*)0,
-                                                 &initialCubemapLayouts, &initialCubemapUavAccess );
+        mDynamicCubemapWorkspace = compositorManager->addWorkspace(
+            sceneManager, cubemapExternalChannels, mCubeCamera, workspaceName, true );
 
         //Now setup the regular renderer
         CompositorChannelVec externalChannels( 2 );
@@ -170,9 +166,7 @@ namespace Demo
         externalChannels[1] = mDynamicCubemap;
 
         return compositorManager->addWorkspace( sceneManager, externalChannels, camera,
-                                                "Tutorial_DynamicCubemapWorkspace",
-                                                true, -1, (UavBufferPackedVec*)0,
-                                                &initialCubemapLayouts, &initialCubemapUavAccess );
+                                                "Tutorial_DynamicCubemapWorkspace", true );
     }
     //-----------------------------------------------------------------------------------
     void DynamicCubemapGameState::createScene01(void)
@@ -294,8 +288,8 @@ namespace Demo
                     datablock->setTexture( Ogre::PBSM_REFLECTION, mDynamicCubemap );
                     datablock->setDiffuse( Ogre::Vector3( 0.0f, 1.0f, 0.0f ) );
 
-                    datablock->setRoughness( std::max( 0.02f, x / Ogre::max( 1, (float)(numX-1) ) ) );
-                    datablock->setFresnel( Ogre::Vector3( z / Ogre::max( 1, (float)(numZ-1) ) ), false );
+                    datablock->setRoughness( std::max( 0.02f, x / std::max( 1.0f, (float)(numX-1) ) ) );
+                    datablock->setFresnel( Ogre::Vector3( z / std::max( 1.0f, (float)(numZ-1) ) ), false );
 
                     Ogre::Item *item = sceneManager->createItem( "Sphere1000.mesh",
                                                                  Ogre::ResourceGroupManager::

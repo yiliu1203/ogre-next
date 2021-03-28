@@ -97,7 +97,7 @@ namespace Ogre
             {
                 MTLTextureDescriptor* desc = [MTLTextureDescriptor
                                              texture2DDescriptorWithPixelFormat:
-                                             MetalMappings::get( mTexture->getPixelFormat() )
+                                             MetalMappings::get( mTexture->getPixelFormat(), mDevice )
                                              width: widthPx height: heightPx mipmapped: NO];
                 desc.textureType = MTLTextureType2DMultisample;
                 desc.sampleCount = mSampleDescription.getColourSamples();
@@ -135,7 +135,14 @@ namespace Ogre
             // Schedule a present once rendering to the framebuffer is complete
             const CFTimeInterval presentationTime = mMetalView.presentationTime;
 
-            if( presentationTime < 0 )
+            if( mMetalLayer.presentsWithTransaction )
+            {
+                id<MTLCommandBuffer> commandBuffer = mDevice->mCurrentCommandBuffer;
+                mDevice->commitAndNextCommandBuffer();
+                [commandBuffer waitUntilScheduled];
+                [mCurrentDrawable present];
+            }
+            else if( presentationTime < 0 )
             {
                 [mDevice->mCurrentCommandBuffer presentDrawable:mCurrentDrawable];
             }
@@ -205,6 +212,7 @@ namespace Ogre
         mClosed = false;
         mHwGamma = true;
         NSObject *externalWindowHandle; // OgreMetalView, NSView or NSWindow
+        bool presentsWithTransaction = false;
 
         if( miscParams )
         {
@@ -229,6 +237,10 @@ namespace Ogre
                 if( opt != end )
                     externalWindowHandle = (__bridge NSObject*)(void*)StringConverter::parseSizeT(opt->second);
             }
+
+            opt = miscParams->find("presentsWithTransaction");
+            if( opt != end )
+                presentsWithTransaction = StringConverter::parseBool( opt->second );
         }
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
@@ -289,11 +301,13 @@ namespace Ogre
         mMetalLayer = (CAMetalLayer*)mMetalView.layer;
         mMetalLayer.device      = mDevice->mDevice;
         mMetalLayer.pixelFormat = MetalMappings::get( mHwGamma ? PFG_BGRA8_UNORM_SRGB :
-                                                                 PFG_BGRA8_UNORM );
+                                                                 PFG_BGRA8_UNORM, mDevice );
 
         //This is the default but if we wanted to perform compute
         //on the final rendering layer we could set this to no
         mMetalLayer.framebufferOnly = YES;
+
+        mMetalLayer.presentsWithTransaction = presentsWithTransaction;
 
         checkLayerSizeChanges();
         setResolutionFromView();

@@ -79,6 +79,8 @@ namespace Ogre
         mSwIndirectBufferPtr( 0 ),
         mPso( 0 ),
         mComputePso( 0 ),
+        mStencilEnabled( false ),
+        mStencilRefValue( 0u ),
         mCurrentIndexBuffer( 0 ),
         mCurrentVertexBuffer( 0 ),
         mCurrentPrimType( MTLPrimitiveTypePoint ),
@@ -386,7 +388,7 @@ namespace Ogre
         rsc->setCapability(RSC_DEPTH_CLAMP);
 #endif
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || ( OGRE_PLATFORM == OGRE_PLATFORM_APPLE && OGRE_CPU == OGRE_CPU_ARM && OGRE_ARCH_TYPE == OGRE_ARCHITECTURE_64 )
         rsc->setCapability( RSC_IS_TILER );
         rsc->setCapability( RSC_TILER_CAN_CLEAR_STENCIL_REGION );
 #endif
@@ -631,7 +633,7 @@ namespace Ogre
         }
     }
     //-------------------------------------------------------------------------
-    void MetalRenderSystem::_setTexture( size_t unit, TextureGpu *texPtr )
+    void MetalRenderSystem::_setTexture( size_t unit, TextureGpu *texPtr, bool bDepthReadOnly )
     {
         if( texPtr )
         {
@@ -1159,7 +1161,7 @@ namespace Ogre
             passDesc->performStoreActions( RenderPassDescriptor::All, isInterruptingRender );
 
             mEntriesToFlush = 0;
-            mVpChanged = false;
+            mVpChanged = true;
 
             mInterruptedRenderCommandEncoder = isInterruptingRender;
 
@@ -1602,8 +1604,10 @@ namespace Ogre
             vertexDescriptor.layouts[15].stride = 4;
             vertexDescriptor.layouts[15].stepFunction = MTLVertexStepFunctionPerInstance;
 #endif
-            [psd setVertexDescriptor:vertexDescriptor];
+            psd.vertexDescriptor = vertexDescriptor;
         }
+
+        psd.alphaToCoverageEnabled = newPso->blendblock->mAlphaToCoverageEnabled;
 
         uint8 mrtCount = 0;
         for( int i=0; i<OGRE_MAX_MULTIPLE_RENDER_TARGETS; ++i )
@@ -1615,7 +1619,7 @@ namespace Ogre
         for( int i=0; i<mrtCount; ++i )
         {
             HlmsBlendblock const *blendblock = newPso->blendblock;
-            psd.colorAttachments[i].pixelFormat = MetalMappings::get( newPso->pass.colourFormat[i] );
+            psd.colorAttachments[i].pixelFormat = MetalMappings::get( newPso->pass.colourFormat[i], mActiveDevice );
 
             if( psd.colorAttachments[i].pixelFormat == MTLPixelFormatInvalid ||
                 (blendblock->mBlendOperation == SBO_ADD &&
@@ -1648,7 +1652,7 @@ namespace Ogre
         {
             MTLPixelFormat depthFormat = MTLPixelFormatInvalid;
             MTLPixelFormat stencilFormat = MTLPixelFormatInvalid;
-            MetalMappings::getDepthStencilFormat( mActiveDevice, newPso->pass.depthFormat,
+            MetalMappings::getDepthStencilFormat( newPso->pass.depthFormat, mActiveDevice,
                                                   depthFormat, stencilFormat );
             psd.depthAttachmentPixelFormat = depthFormat;
             psd.stencilAttachmentPixelFormat = stencilFormat;
@@ -2068,22 +2072,24 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_setComputePso( const HlmsComputePso *pso )
     {
-        __unsafe_unretained id<MTLComputePipelineState> metalPso =
-                (__bridge id<MTLComputePipelineState>)pso->rsData;
-
         __unsafe_unretained id<MTLComputeCommandEncoder> computeEncoder =
                 mActiveDevice->getComputeEncoder();
 
         if( mComputePso != pso )
         {
-            [computeEncoder setComputePipelineState:metalPso];
+            if( pso )
+            {
+                __unsafe_unretained id<MTLComputePipelineState> metalPso =
+                    (__bridge id<MTLComputePipelineState>)pso->rsData;
+                [computeEncoder setComputePipelineState:metalPso];
+            }
             mComputePso = pso;
         }
     }
     //-------------------------------------------------------------------------
     VertexElementType MetalRenderSystem::getColourVertexElementType(void) const
     {
-        return VET_COLOUR_ARGB;
+        return VET_COLOUR_ABGR; // MTLVertexFormatUChar4Normalized
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_dispatch( const HlmsComputePso &pso )
@@ -2132,10 +2138,48 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_render( const CbDrawCallIndexed *cmd )
     {
+        const VertexArrayObject *vao = cmd->vao;
+
+        const MTLIndexType indexType = static_cast<MTLIndexType>( vao->mIndexBuffer->getIndexType() );
+        const MTLPrimitiveType primType =  std::min(
+                    MTLPrimitiveTypeTriangleStrip,
+                    static_cast<MTLPrimitiveType>( vao->getOperationType() - 1u ) );
+
+        MetalBufferInterface *indexBufferInterface = static_cast<MetalBufferInterface*>(
+                    vao->mIndexBuffer->getBufferInterface() );
+        __unsafe_unretained id<MTLBuffer> indexBuffer = indexBufferInterface->getVboName();
+
+        size_t indirectBufferOffset = (size_t)cmd->indirectBufferOffset;
+        for( uint32 i=cmd->numDraws; i; i--)
+        {
+            [mActiveRenderEncoder drawIndexedPrimitives:primType
+                                              indexType:indexType
+                                            indexBuffer:indexBuffer
+                                      indexBufferOffset:0
+                                         indirectBuffer:mIndirectBuffer
+                                   indirectBufferOffset:indirectBufferOffset];
+            
+            indirectBufferOffset += sizeof( CbDrawIndexed ); // MTLDrawIndexedPrimitivesIndirectArguments
+        }
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_render( const CbDrawCallStrip *cmd )
     {
+        const VertexArrayObject *vao = cmd->vao;
+
+        const MTLPrimitiveType primType =  std::min(
+                    MTLPrimitiveTypeTriangleStrip,
+                    static_cast<MTLPrimitiveType>( vao->getOperationType() - 1u ) );
+
+        size_t indirectBufferOffset = (size_t)cmd->indirectBufferOffset;
+        for( uint32 i=cmd->numDraws; i; i--)
+        {
+            [mActiveRenderEncoder drawPrimitives:primType
+                                  indirectBuffer:mIndirectBuffer
+                            indirectBufferOffset:indirectBufferOffset];
+            
+            indirectBufferOffset += sizeof( CbDrawStrip ); // MTLDrawPrimitivesIndirectArguments
+        }
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_renderEmulated( const CbDrawCallIndexed *cmd )
@@ -2149,6 +2193,7 @@ namespace Ogre
                     MTLPrimitiveTypeTriangleStrip,
                     static_cast<MTLPrimitiveType>( vao->getOperationType() - 1u ) );
 
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
         //Calculate bytesPerVertexBuffer & numVertexBuffers which is the same for all draws in this cmd
         uint32 bytesPerVertexBuffer[15];
         size_t numVertexBuffers = 0;
@@ -2162,6 +2207,7 @@ namespace Ogre
             ++numVertexBuffers;
             ++itor;
         }
+#endif
 
         //Get index buffer stuff which is the same for all draws in this cmd
         const size_t bytesPerIndexElement = vao->mIndexBuffer->getBytesPerElement();

@@ -44,6 +44,7 @@ namespace Ogre
         mAllClearColoursSetAndIdentical( false ),
         mAnyColourLoadActionsSetToClear( false ),
         mHasRenderWindow( false ),
+        mHasSRGB( false ),
         mSharedFboItor( renderSystem->_getFrameBufferDescMap().end() ),
         mRenderSystem( renderSystem )
     {
@@ -94,7 +95,10 @@ namespace Ogre
                              "GL3PlusRenderPassDescriptor::checkRenderWindowStatus" );
             }
 
-            switchToRenderWindow();
+            if( mColour[0].texture->isOpenGLRenderWindow() )
+                switchToRenderWindow();
+            else
+                switchToFBO(); // Headless window
         }
         else
         {
@@ -207,6 +211,7 @@ namespace Ogre
         }
 
         bool needsMsaaResolveFbo = false;
+        mHasSRGB = false;
 
         //Attach colour entries
         for( size_t i=0; i<mNumColourEntries; ++i )
@@ -218,12 +223,15 @@ namespace Ogre
                              "GL3PlusRenderPassDescriptor::updateColourFbo" );
             }
 
+            if( PixelFormatGpuUtils::isSRgb( mColour[i].texture->getPixelFormat() ) )
+                mHasSRGB |= true;
+
             if( !mHasRenderWindow && mColour[i].texture->getPixelFormat() != PFG_NULL )
             {
                 assert( dynamic_cast<GL3PlusTextureGpu*>( mColour[i].texture ) );
                 GL3PlusTextureGpu *texture = static_cast<GL3PlusTextureGpu*>( mColour[i].texture );
 
-                if( texture->isRenderWindowSpecific() )
+                if( texture->isOpenGLRenderWindow() )
                 {
                     OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS,
                                  "Cannot use RenderWindow as MRT with other colour textures",
@@ -487,7 +495,17 @@ namespace Ogre
             OCGE( glDrawBuffers( mNumColourEntries, colourBuffs ) );
         }
 
-        OCGE( glEnable( GL_FRAMEBUFFER_SRGB ) );
+        if( entriesToFlush & RenderPassDescriptor::Colour )
+        {
+            if( mHasSRGB )
+            {
+                OCGE( glEnable( GL_FRAMEBUFFER_SRGB ) );
+            }
+            else
+            {
+                OCGE( glDisable( GL_FRAMEBUFFER_SRGB ) );
+            }
+        }
 
         const RenderSystemCapabilities *capabilities = mRenderSystem->getCapabilities();
         const bool isTiler = capabilities->hasCapability( RSC_IS_TILER );

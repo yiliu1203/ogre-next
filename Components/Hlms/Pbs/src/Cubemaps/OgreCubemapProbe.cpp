@@ -82,6 +82,11 @@ namespace Ogre
 
         assert( !mNumDatablockUsers &&
                 "There's still datablocks using this probe! Pointers will become dangling!" );
+        _releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void CubemapProbe::_releaseManualHardwareResources()
+    {
         if( mConstBufferForManualProbes )
         {
             SceneManager *sceneManager = mCreator->getSceneManager();
@@ -90,6 +95,22 @@ namespace Ogre
             mConstBufferForManualProbes = 0;
             mCreator->_removeManuallyActiveProbe( this );
         }
+    }
+    //-----------------------------------------------------------------------------------
+    void CubemapProbe::_restoreManualHardwareResources()
+    {
+        if( mNumDatablockUsers && !mConstBufferForManualProbes )
+        {
+            OGRE_ASSERT_LOW(!mCreator->getAutomaticMode());
+
+            SceneManager *sceneManager = mCreator->getSceneManager();
+            VaoManager *vaoManager = sceneManager->getDestinationRenderSystem()->getVaoManager();
+            mConstBufferForManualProbes = vaoManager->createConstBuffer(
+                        ParallaxCorrectedCubemap::getConstBufferSizeStatic(),
+                        BT_DEFAULT, 0, false );
+            mCreator->_addManuallyActiveProbe( this );
+        }
+        mDirty = true;
     }
     //-----------------------------------------------------------------------------------
     void CubemapProbe::destroyWorkspace(void)
@@ -412,14 +433,9 @@ namespace Ogre
         channels.push_back( rtt );
         channels.push_back( ibl );
         channels.insert( channels.end(), additionalChannels.begin(), additionalChannels.end() );
-        mWorkspace =
-            compositorManager->addWorkspace( sceneManager, channels, mCamera, mWorkspaceDefName, false, -1,
-                                             (UavBufferPackedVec*)0,
-                                             (ResourceLayoutMap*)0,
-                                             (ResourceAccessMap*)0,
-                                             Vector4::ZERO,
-                                             0x00,
-                                             executionMask );
+        mWorkspace = compositorManager->addWorkspace(
+            sceneManager, channels, mCamera, mWorkspaceDefName, false, -1, (UavBufferPackedVec *)0,
+            (ResourceStatusMap *)0, Vector4::ZERO, 0x00, executionMask );
         mWorkspace->addListener( mCreator );
 
         if( !mStatic && !mCreator->getAutomaticMode() )
@@ -532,7 +548,7 @@ namespace Ogre
         //1e-6f avoids division by zero.
         Vector3 ndf = (dist - innerRange) / (outerRange - innerRange + Real(1e-6f));
 
-        return Ogre::max( Ogre::max( ndf.x, ndf.y ), ndf.z );
+        return std::max( std::max( ndf.x, ndf.y ), ndf.z );
     }
     //-----------------------------------------------------------------------------------
     void CubemapProbe::_prepareForRendering(void)

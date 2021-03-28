@@ -40,29 +40,31 @@ THE SOFTWARE.
 
 namespace Ogre
 {
-    const ArrayReal MathlibNEON::HALF       = vdupq_n_f32( 0.5f );
-    const ArrayReal MathlibNEON::ONE        = vdupq_n_f32( 1.0f );
-    const ArrayReal MathlibNEON::THREE      = vdupq_n_f32( 3.0f );
-    const ArrayReal MathlibNEON::NEG_ONE    = vdupq_n_f32( -1.0f );
-    const ArrayReal MathlibNEON::fEpsilon   = vdupq_n_f32( 1e-6f );
-    const ArrayReal MathlibNEON::fSqEpsilon = vdupq_n_f32( 1e-12f );
-    const ArrayReal MathlibNEON::OneMinusEpsilon= vdupq_n_f32( 1.0f - 1e-6f );
-    const ArrayReal MathlibNEON::FLOAT_MIN  = vdupq_n_f32( std::numeric_limits<Real>::min() );
-    const ArrayReal MathlibNEON::SIGN_MASK  = vdupq_n_f32( -0.0f );
-    const ArrayReal MathlibNEON::INFINITEA  = vdupq_n_f32( std::numeric_limits<Real>::infinity() );
-    const ArrayReal MathlibNEON::MAX_NEG    = vdupq_n_f32( -std::numeric_limits<Real>::max() );
-    const ArrayReal MathlibNEON::MAX_POS    = vdupq_n_f32( std::numeric_limits<Real>::max() );
-    const ArrayReal MathlibNEON::LAST_AFFINE_COLUMN = (ArrayReal) { 0, 0, 0, 1 };
+    #define init_list_4(a) { a, a, a, a }
+    const float32x4_ct MathlibNEON::HALF       = init_list_4( 0.5f );
+    const float32x4_ct MathlibNEON::ONE        = init_list_4( 1.0f );
+    const float32x4_ct MathlibNEON::THREE      = init_list_4( 3.0f );
+    const float32x4_ct MathlibNEON::NEG_ONE    = init_list_4( -1.0f );
+    const float32x4_ct MathlibNEON::fEpsilon   = init_list_4( 1e-6f );
+    const float32x4_ct MathlibNEON::fSqEpsilon = init_list_4( 1e-12f );
+    const float32x4_ct MathlibNEON::OneMinusEpsilon= init_list_4( 1.0f - 1e-6f );
+    const float32x4_ct MathlibNEON::FLOAT_MIN  = init_list_4( std::numeric_limits<Real>::min() );
+    const float32x4_ct MathlibNEON::SIGN_MASK  = init_list_4( -0.0f );
+    const float32x4_ct MathlibNEON::INFINITEA  = init_list_4( std::numeric_limits<Real>::infinity() );
+    const float32x4_ct MathlibNEON::MAX_NEG    = init_list_4( -std::numeric_limits<Real>::max() );
+    const float32x4_ct MathlibNEON::MAX_POS    = init_list_4( std::numeric_limits<Real>::max() );
+    const float32x4_ct MathlibNEON::LAST_AFFINE_COLUMN = { 0, 0, 0, 1 };
 
-    static const Real _PI = Real( 4.0 * atan( 1.0 ) );
+    static const Real _PI = Real( 4.0 * std::atan( 1.0 ) );
     //We can't use Math::fDeg2Rad & Math::fRad2Deg directly because
     //it's not guaranteed to have been initialized first
-    const ArrayReal MathlibNEON::PI         = vdupq_n_f32( _PI );
-    const ArrayReal MathlibNEON::TWO_PI     = vdupq_n_f32( 2.0f * _PI );
-    const ArrayReal MathlibNEON::fDeg2Rad   = vdupq_n_f32( _PI / 180.0f );
-    const ArrayReal MathlibNEON::fRad2Deg   = vdupq_n_f32( 180.0f / _PI );
+    const float32x4_ct MathlibNEON::PI         = init_list_4( _PI );
+    const float32x4_ct MathlibNEON::TWO_PI     = init_list_4( 2.0f * _PI );
+    const float32x4_ct MathlibNEON::fDeg2Rad   = init_list_4( _PI / 180.0f );
+    const float32x4_ct MathlibNEON::fRad2Deg   = init_list_4( 180.0f / _PI );
 
-    const ArrayReal MathlibNEON::ONE_DIV_2PI= vdupq_n_f32( 1.0f / (2.0f * _PI) );
+    const float32x4_ct MathlibNEON::ONE_DIV_2PI= init_list_4( 1.0f / (2.0f * _PI) );
+    #undef init_list_4
 
     //-----------------------------------------------------------------------------------
     ArrayReal MathlibNEON::Sin4( ArrayReal x )
@@ -118,24 +120,24 @@ namespace Ogre
         sincos_ps( x, &outSin, &outCos );
     }
 
-    const ArrayMaskR BooleanMask4::mMasks[NUM_MASKS] =
+    const uint32x4_ct BooleanMask4::mMasks[NUM_MASKS] =
     {
-        (ArrayMaskR) { 0x00000000, 0x00000000, 0x00000000, 0x00000000 },//MASK_NONE
-        (ArrayMaskR) { 0xffffffff, 0x00000000, 0x00000000, 0x00000000 },//MASK_X
-        (ArrayMaskR) { 0x00000000, 0xffffffff, 0x00000000, 0x00000000 },//MASK_Y
-        (ArrayMaskR) { 0xffffffff, 0xffffffff, 0x00000000, 0x00000000 },//MASK_XY
-        (ArrayMaskR) { 0x00000000, 0x00000000, 0xffffffff, 0x00000000 },//MASK_Z
-        (ArrayMaskR) { 0xffffffff, 0x00000000, 0xffffffff, 0x00000000 },//MASK_XZ
-        (ArrayMaskR) { 0x00000000, 0xffffffff, 0xffffffff, 0x00000000 },//MASK_YZ
-        (ArrayMaskR) { 0xffffffff, 0xffffffff, 0xffffffff, 0x00000000 },//MASK_XYZ
-        (ArrayMaskR) { 0x00000000, 0x00000000, 0x00000000, 0xffffffff },//MASK_W
-        (ArrayMaskR) { 0xffffffff, 0x00000000, 0x00000000, 0xffffffff },//MASK_XW
-        (ArrayMaskR) { 0x00000000, 0xffffffff, 0x00000000, 0xffffffff },//MASK_YW
-        (ArrayMaskR) { 0xffffffff, 0xffffffff, 0x00000000, 0xffffffff },//MASK_XYW
-        (ArrayMaskR) { 0x00000000, 0x00000000, 0xffffffff, 0xffffffff },//MASK_ZW
-        (ArrayMaskR) { 0xffffffff, 0x00000000, 0xffffffff, 0xffffffff },//MASK_XZW
-        (ArrayMaskR) { 0x00000000, 0xffffffff, 0xffffffff, 0xffffffff },//MASK_YZW
-        (ArrayMaskR) { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff } //MASK_XYZW
+        { 0x00000000, 0x00000000, 0x00000000, 0x00000000 },//MASK_NONE
+        { 0xffffffff, 0x00000000, 0x00000000, 0x00000000 },//MASK_X
+        { 0x00000000, 0xffffffff, 0x00000000, 0x00000000 },//MASK_Y
+        { 0xffffffff, 0xffffffff, 0x00000000, 0x00000000 },//MASK_XY
+        { 0x00000000, 0x00000000, 0xffffffff, 0x00000000 },//MASK_Z
+        { 0xffffffff, 0x00000000, 0xffffffff, 0x00000000 },//MASK_XZ
+        { 0x00000000, 0xffffffff, 0xffffffff, 0x00000000 },//MASK_YZ
+        { 0xffffffff, 0xffffffff, 0xffffffff, 0x00000000 },//MASK_XYZ
+        { 0x00000000, 0x00000000, 0x00000000, 0xffffffff },//MASK_W
+        { 0xffffffff, 0x00000000, 0x00000000, 0xffffffff },//MASK_XW
+        { 0x00000000, 0xffffffff, 0x00000000, 0xffffffff },//MASK_YW
+        { 0xffffffff, 0xffffffff, 0x00000000, 0xffffffff },//MASK_XYW
+        { 0x00000000, 0x00000000, 0xffffffff, 0xffffffff },//MASK_ZW
+        { 0xffffffff, 0x00000000, 0xffffffff, 0xffffffff },//MASK_XZW
+        { 0x00000000, 0xffffffff, 0xffffffff, 0xffffffff },//MASK_YZW
+        { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff } //MASK_XYZW
     };
 }
 #endif

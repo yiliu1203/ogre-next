@@ -1,6 +1,17 @@
 @piece( envSpecularRoughness ) pixelData.perceptualRoughness * passBuf.envMapNumMipmaps @end
 
 @piece( DefaultHeaderPS )
+	// START UNIFORM DECLARATION
+	@property( !hlms_shadowcaster || alpha_test )
+		@property( !hlms_shadowcaster )
+			@insertpiece( PassStructDecl )
+		@end
+		@insertpiece( MaterialStructDecl )
+		@insertpiece( InstanceStructDecl )
+	@end
+	@insertpiece( custom_ps_uniformStructDeclaration )
+	// END UNIFORM DECLARATION
+
 	@property( !fresnel_scalar )
 		#define float_fresnel float
 		#define make_float_fresnel( x ) x
@@ -100,6 +111,10 @@
 			//Normal texture must be in RG8_UNORM or similar format!
 			#define getTSNormal( normalMap, samplerState, uv, normalIdx ) reconstructZfromTSNormal( OGRE_SampleArray2D( normalMap, samplerState, uv, normalIdx ).xy * 2.0 - 1.0 )
 		@end
+		@property( normal_sampling_format == normal_bc3_unorm )
+			//Normal texture must be in BC3 or similar format!
+			#define getTSNormal( normalMap, samplerState, uv, normalIdx ) reconstructZfromTSNormal( OGRE_SampleArray2D( normalMap, samplerState, uv, normalIdx ).yw * 2.0 - 1.0 )
+		@end
 		@property( normal_sampling_format == normal_la )
 			//Normal texture must be in LA format!
 			#define getTSNormal( normalMap, samplerState, uv, normalIdx ) reconstructZfromTSNormal( OGRE_SampleArray2D( normalMap, samplerState, uv, normalIdx ).xw * 2.0 - 1.0 )
@@ -168,7 +183,7 @@
 		@property( detail_weight_map )	ushort texIndex_weightMapIdx		= material.indices0_3.z & 0x0000FFFFu;@end
 		@property( detail_map0 )		ushort texIndex_detailMapIdx0		= material.indices0_3.z >> 16u;@end
 		@property( detail_map1 )		ushort texIndex_detailMapIdx1		= material.indices0_3.w & 0x0000FFFFu;@end
-		@property( detail_map2 )		ushort texIndex_detailMapIdx2		= material.indices0_3.w >> 16u;;@end
+		@property( detail_map2 )		ushort texIndex_detailMapIdx2		= material.indices0_3.w >> 16u;@end
 		@property( detail_map3 )		ushort texIndex_detailMapIdx3		= material.indices4_7.x & 0x0000FFFFu;@end
 	@end
 @end
@@ -326,7 +341,7 @@
 		pixelData.geomNormal = normalize( inPs.normal ) @insertpiece( two_sided_flip_normal );
 		float3 vTangent		= normalize( inPs.tangent );
 
-		@property( hlms_qtangent )
+		@property( hlms_qtangent || hlms_tangent4 )
 			@piece( tbnApplyReflection ) * inPs.biNormalReflection@end
 		@end
 
@@ -756,7 +771,7 @@
 					outPs_colour0.xyz	= finalColour;
 				@end
 
-				@property( hlms_alphablend )
+				@property( hlms_alphablend || hlms_alpha_to_coverage )
 					@property( use_texture_alpha )
 						outPs_colour0.w	= material.F0.w * pixelData.diffuse.w;
 					@else

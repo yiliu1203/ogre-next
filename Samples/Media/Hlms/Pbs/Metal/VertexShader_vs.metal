@@ -12,7 +12,8 @@ struct VS_INPUT
 @property( hlms_qtangent )	float4 qtangent [[attribute(VES_NORMAL)]];@end
 
 @property( normal_map && !hlms_qtangent )
-	float3 tangent	[[attribute(VES_TANGENT)]];
+	@property( hlms_tangent4 )float4 tangent	[[attribute(VES_TANGENT)]];@end
+	@property( !hlms_tangent4 )float3 tangent	[[attribute(VES_TANGENT)]];@end
 	@property( hlms_binormal )float3 binormal	[[attribute(VES_BINORMAL)]];@end
 @end
 
@@ -55,9 +56,9 @@ vertex PS_INPUT main_metal
 	, device const float4 *worldMatBuf [[buffer(TEX_SLOT_START+0)]]
 	@property( hlms_pose )
 		@property( !hlms_pose_half )
-			, device const float4 *poseBuf	[[buffer(TEX_SLOT_START+4)]]
+			, device const float4 *poseBuf	[[buffer(TEX_SLOT_START+@value(poseBuf))]]
 		@else
-			, device const half4 *poseBuf	[[buffer(TEX_SLOT_START+4)]]
+			, device const half4 *poseBuf	[[buffer(TEX_SLOT_START+@value(poseBuf))]]
 		@end
 	@end
 	@property( hlms_vertex_id )
@@ -69,11 +70,6 @@ vertex PS_INPUT main_metal
 )
 {
 	PS_INPUT outVs;
-@property( !hlms_qtangent && hlms_normal )
-	float3 normal	= input.normal;
-	@property( normal_map )float3 tangent	= input.tangent;@end
-	@property( hlms_binormal )float3 binormal	= input.binormal;@end
-@end
 
 	@insertpiece( custom_vs_preExecution )
 	@insertpiece( DefaultBodyVS )

@@ -42,6 +42,7 @@ THE SOFTWARE.
 #include "OgreCamera.h"
 #include "OgreHighLevelGpuProgramManager.h"
 #include "OgreHighLevelGpuProgram.h"
+#include "OgreRootLayout.h"
 #include "OgreForward3D.h"
 #include "Cubemaps/OgreParallaxCorrectedCubemap.h"
 #include "OgreIrradianceVolume.h"
@@ -53,7 +54,7 @@ THE SOFTWARE.
 #include "Compositor/OgreCompositorShadowNode.h"
 #include "Vao/OgreVaoManager.h"
 #include "Vao/OgreConstBufferPacked.h"
-#include "Vao/OgreTexBufferPacked.h"
+#include "Vao/OgreReadOnlyBufferPacked.h"
 #include "Vao/OgreVertexArrayObject.h"
 
 #include "CommandBuffer/OgreCommandBuffer.h"
@@ -90,6 +91,8 @@ namespace Ogre
     const IdString PbsProperty::PerceptualRoughness=IdString( "perceptual_roughness" );
     const IdString PbsProperty::HasPlanarReflections=IdString( "has_planar_reflections" );
 
+    const IdString PbsProperty::Set0TextureSlotEnd  = IdString( "set0_texture_slot_end" );
+    const IdString PbsProperty::Set1TextureSlotEnd  = IdString( "set1_texture_slot_end" );
     const IdString PbsProperty::NumTextures     = IdString( "num_textures" );
     const IdString PbsProperty::NumSamplers     = IdString( "num_samplers" );
     const IdString PbsProperty::DiffuseMapGrayscale = IdString( "diffuse_map_grayscale" );
@@ -123,6 +126,7 @@ namespace Ogre
     const IdString PbsProperty::NormalLa              = IdString( "normal_la" );
     const IdString PbsProperty::NormalRgUnorm        = IdString( "normal_rg_unorm" );
     const IdString PbsProperty::NormalRgSnorm        = IdString( "normal_rg_snorm" );
+    const IdString PbsProperty::NormalBc3Unorm       = IdString( "normal_bc3_unorm" );
 
     const IdString PbsProperty::NormalWeight          = IdString( "normal_weight" );
     const IdString PbsProperty::NormalWeightTex       = IdString( "normal_weight_tex" );
@@ -265,6 +269,7 @@ namespace Ogre
         mGridBuffer( 0 ),
         mGlobalLightListBuffer( 0 ),
         mMaxSpecIblMipmap( 1.0f ),
+        mTexBufUnitSlotEnd( 0u ),
         mTexUnitSlotStart( 0 ),
         mPrePassTextures( 0 ),
         mDepthTexture( 0 ),
@@ -293,7 +298,8 @@ namespace Ogre
         mHasSeparateSamplers( 0 ),
         mLastDescTexture( 0 ),
         mLastDescSampler( 0 ),
-        mReservedTexSlots( 1u ), //Vertex shader consumes 1 slot with its tbuffer.
+        mReservedTexBufferSlots( 1u ),  // Vertex shader consumes 1 slot with its tbuffer.
+        mReservedTexSlots( 0u ),
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
         mFineLightMaskGranularity( true ),
 #endif
@@ -359,7 +365,7 @@ namespace Ogre
             else
                 samplerblock.mBorderColour  = pitchBlackBorder;
 
-            if( mShaderProfile != "hlsl" )
+            if( mShaderProfile != "hlsl" && mShaderProfile  != "hlslvk" )
             {
                 samplerblock.mMinFilter = FO_POINT;
                 samplerblock.mMagFilter = FO_POINT;
@@ -445,6 +451,101 @@ namespace Ogre
             mHasSeparateSamplers = caps->hasCapability( RSC_SEPARATE_SAMPLERS_FROM_TEXTURES );
         }
     }
+
+    //-----------------------------------------------------------------------------------
+    void HlmsPbs::setupRootLayout( RootLayout &rootLayout )
+    {
+        DescBindingRange *descBindingRanges = rootLayout.mDescBindingRanges[0];
+
+        if( getProperty( PbsProperty::useLightBuffers ) )
+            descBindingRanges[DescBindingTypes::ConstBuffer].end = 7u;
+        else
+        {
+            // PccManualProbeDecl piece uses more conditionals to whether use a 4th const buffer
+            // However we don't need to test them all. It's ok to have false positives
+            // (it just wastes a little bit more memory)
+            if( getProperty( PbsProperty::UseParallaxCorrectCubemaps ) &&
+                !getProperty( PbsProperty::EnableCubemapsAuto ) )
+            {
+                descBindingRanges[DescBindingTypes::ConstBuffer].end = 4u;
+            }
+            else
+                descBindingRanges[DescBindingTypes::ConstBuffer].end = 3u;
+        }
+
+        descBindingRanges[DescBindingTypes::ReadOnlyBuffer].end = 1u;
+
+        if( mSetupWorldMatBuf )
+            descBindingRanges[DescBindingTypes::ReadOnlyBuffer].start = 0u;
+        else
+            descBindingRanges[DescBindingTypes::ReadOnlyBuffer].start = 1u;
+
+        //if( getProperty( HlmsBaseProp::Pose ) )
+            //descBindingRanges[DescBindingTypes::TexBuffer].end = 4u;
+
+        //else
+        {
+            if( getProperty( HlmsBaseProp::ForwardPlus ) )
+            {
+                descBindingRanges[DescBindingTypes::ReadOnlyBuffer].end =
+                    (uint16)getProperty( "f3dLightList" ) + 1u;
+
+                descBindingRanges[DescBindingTypes::TexBuffer].start = (uint16)getProperty( "f3dGrid" );
+                descBindingRanges[DescBindingTypes::TexBuffer].end =
+                    descBindingRanges[DescBindingTypes::TexBuffer].start + 1u;
+            }
+        }
+
+        // It's not a typo: we start Texture where max( ReadOnlyBuffer, TexBuffer ) left off
+        // because we treat ReadOnly buffers numbering as if they all were texbuffer slots
+        // (in terms of contiguity)
+        if( descBindingRanges[DescBindingTypes::ReadOnlyBuffer].isInUse() )
+        {
+            descBindingRanges[DescBindingTypes::Texture].start =
+                descBindingRanges[DescBindingTypes::ReadOnlyBuffer].end;
+        }
+        if( descBindingRanges[DescBindingTypes::TexBuffer].isInUse() )
+        {
+            descBindingRanges[DescBindingTypes::Texture].start =
+                std::max( descBindingRanges[DescBindingTypes::Texture].end,
+                          descBindingRanges[DescBindingTypes::TexBuffer].end );
+        }
+        descBindingRanges[DescBindingTypes::Texture].end =
+            (uint16)getProperty( PbsProperty::Set0TextureSlotEnd );
+
+        descBindingRanges[DescBindingTypes::Sampler].start =
+            descBindingRanges[DescBindingTypes::Texture].start;
+        descBindingRanges[DescBindingTypes::Sampler].end =
+            ( uint16 )( getProperty( "samplerStateStart" ) );
+
+        rootLayout.mBaked[1] = true;
+        DescBindingRange *bakedRanges = rootLayout.mDescBindingRanges[1];
+
+        bakedRanges[DescBindingTypes::Texture].start =
+            descBindingRanges[DescBindingTypes::Texture].end;
+        bakedRanges[DescBindingTypes::Texture].end =
+            (uint16)getProperty( PbsProperty::Set1TextureSlotEnd );
+
+        bakedRanges[DescBindingTypes::Sampler].start = descBindingRanges[DescBindingTypes::Sampler].end;
+        bakedRanges[DescBindingTypes::Sampler].end = bakedRanges[DescBindingTypes::Sampler].start +
+                                                     (uint16)getProperty( PbsProperty::NumSamplers );
+
+        int32 poseBufReg = getProperty( "poseBuf", -1 );
+        if( poseBufReg >= 0 )
+        {
+            DescBindingRange *poseRanges = rootLayout.mDescBindingRanges[2];
+            if( !bakedRanges[DescBindingTypes::Texture].isInUse() &&
+                !bakedRanges[DescBindingTypes::Sampler].isInUse() )
+            {
+                poseRanges = rootLayout.mDescBindingRanges[1];
+                rootLayout.mBaked[1] = false;
+            }
+            poseRanges[DescBindingTypes::TexBuffer].start = static_cast<uint16>( poseBufReg );
+            poseRanges[DescBindingTypes::TexBuffer].end = static_cast<uint16>( poseBufReg + 1 );
+        }
+
+        mListener->setupRootLayout( rootLayout, mSetProperties );
+    }
     //-----------------------------------------------------------------------------------
     const HlmsCache* HlmsPbs::createShaderCacheEntry( uint32 renderableHash,
                                                             const HlmsCache &passCache,
@@ -456,7 +557,7 @@ namespace Ogre
         const HlmsCache *retVal = Hlms::createShaderCacheEntry( renderableHash, passCache, finalHash,
                                                                 queuedRenderable );
 
-        if( mShaderProfile == "hlsl" || mShaderProfile == "metal" )
+        if( mShaderProfile != "glsl" )
         {
             mListener->shaderCacheEntryCreated( mShaderProfile, retVal, passCache,
                                                 mSetProperties, queuedRenderable );
@@ -464,11 +565,8 @@ namespace Ogre
         }
 
         GpuProgramParametersSharedPtr vsParams = retVal->pso.vertexShader->getDefaultParameters();
-        if( mSetupWorldMatBuf )
+        if( mSetupWorldMatBuf && mVaoManager->readOnlyIsTexBuffer() )
             vsParams->setNamedConstant( "worldMatBuf", 0 );
-
-        if( queuedRenderable.renderable->getNumPoses() > 0 )
-            vsParams->setNamedConstant( "poseBuf", 4 );
 
         mListener->shaderCacheEntryCreated( mShaderProfile, retVal, passCache,
                                             mSetProperties, queuedRenderable );
@@ -493,7 +591,8 @@ namespace Ogre
         return retVal;
     }
     //-----------------------------------------------------------------------------------
-    void HlmsPbs::setDetailMapProperties( HlmsPbsDatablock *datablock, PiecesMap *inOutPieces )
+    void HlmsPbs::setDetailMapProperties( HlmsPbsDatablock *datablock, PiecesMap *inOutPieces,
+                                          const bool bCasterPass )
     {
         uint32 minNormalMap = 4;
         bool hasDiffuseMaps = false;
@@ -504,7 +603,8 @@ namespace Ogre
             uint8 blendMode = datablock->mBlendModes[i];
 
             setDetailTextureProperty( PbsProperty::DetailMapN,   datablock, PBSM_DETAIL0, i );
-            setDetailTextureProperty( PbsProperty::DetailMapNmN, datablock, PBSM_DETAIL0_NM, i );
+            if( !bCasterPass )
+                setDetailTextureProperty( PbsProperty::DetailMapNmN, datablock, PBSM_DETAIL0_NM, i );
 
             if( datablock->getTexture( PBSM_DETAIL0 + i ) )
             {
@@ -513,7 +613,7 @@ namespace Ogre
                 hasDiffuseMaps = true;
             }
 
-            if( datablock->getTexture( PBSM_DETAIL0_NM + i ) )
+            if( !bCasterPass && datablock->getTexture( PBSM_DETAIL0_NM + i ) )
             {
                 minNormalMap = std::min<uint32>( minNormalMap, i );
                 hasNormalMaps = true;
@@ -523,8 +623,8 @@ namespace Ogre
                 setProperty( *PbsProperty::DetailOffsetsPtrs[i], 1 );
 
             if( datablock->mDetailWeight[i] != 1.0f &&
-                (datablock->getTexture( PBSM_DETAIL0 + i ) ||
-                 datablock->getTexture( PBSM_DETAIL0_NM + i )) )
+                ( datablock->getTexture( PBSM_DETAIL0 + i ) ||
+                  ( !bCasterPass && datablock->getTexture( PBSM_DETAIL0_NM + i ) ) ) )
             {
                 anyDetailWeight = true;
             }
@@ -690,7 +790,7 @@ namespace Ogre
         setProperty( PbsProperty::NormalWeight, numNormalWeights );
 
         if( datablock->mTexturesDescSet )
-            setDetailMapProperties( datablock, inOutPieces );
+            setDetailMapProperties( datablock, inOutPieces, false );
         else
             setProperty( PbsProperty::FirstValidDetailMapNm, 4 );
 
@@ -789,8 +889,8 @@ namespace Ogre
             // NB if texture has not loaded yet, getPixelFormat will return PFG_UNKNOWN and so
             // isSigned may be incorrect. However calculateHasFor will be called again when it
             // has loaded, so just assume default for now.
-            const bool isSigned = PixelFormatGpuUtils::isSigned(
-                                      datablockNormalMaps[0]->getPixelFormat() );
+            PixelFormatGpu nmPixelFormat = datablockNormalMaps[0]->getPixelFormat();
+            const bool isSigned = PixelFormatGpuUtils::isSigned( nmPixelFormat );
             if (isSigned)
             {
                 setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgSnorm.mHash );
@@ -798,8 +898,16 @@ namespace Ogre
             }
             else
             {
-                setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgUnorm.mHash );
-                setProperty( PbsProperty::NormalRgUnorm, PbsProperty::NormalRgUnorm.mHash );
+                if( nmPixelFormat != PFG_BC3_UNORM )
+                {
+                    setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgUnorm.mHash );
+                    setProperty( PbsProperty::NormalRgUnorm, PbsProperty::NormalRgUnorm.mHash );
+                }
+                else
+                {
+                    setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalBc3Unorm.mHash );
+                    setProperty( PbsProperty::NormalBc3Unorm, PbsProperty::NormalBc3Unorm.mHash );
+                }
             }
             //Reserved for supporting LA textures in GLES2.
 //            else
@@ -831,6 +939,7 @@ namespace Ogre
 
         if( datablock->mUseAlphaFromTextures &&
             ( datablock->mBlendblock[0]->isAutoTransparent() ||  //
+              datablock->mBlendblock[0]->mAlphaToCoverageEnabled ||
               datablock->mTransparencyMode == HlmsPbsDatablock::Refractive ) &&
             ( getProperty( PbsProperty::DiffuseMap ) ||  //
               getProperty( PbsProperty::DetailMapsDiffuse ) ) )
@@ -897,38 +1006,27 @@ namespace Ogre
             }
         }
 
-        if( hasAlphaTest )
+        if( hasAlphaTest && getProperty( PbsProperty::UseTextureAlpha ) )
         {
-            if (datablock->mSamplersDescSet)
-                setProperty(PbsProperty::NumSamplers, datablock->mSamplersDescSet->mSamplers.size());
+            if( datablock->mTexturesDescSet )
+                setDetailMapProperties( datablock, inOutPieces, true );
 
-            //Keep GLSL happy by not declaring more textures than we'll actually need.
-            uint8 numTextures = 0;
+            if( datablock->mSamplersDescSet )
+                setProperty( PbsProperty::NumSamplers, datablock->mSamplersDescSet->mSamplers.size() );
+
             if( datablock->mTexturesDescSet )
             {
-                for( int i=0; i<4; ++i )
-                {
-                    uint8 idxToDescTex = datablock->getIndexToDescriptorTexture( PBSM_DETAIL0+i );
-                    if( idxToDescTex < datablock->mTexturesDescSet->mTextures.size() )
-                        numTextures = std::max<uint8>( numTextures, idxToDescTex + 1u );
-                }
+                const bool envMap = datablock->getTexture( PBSM_REFLECTION ) != 0;
+                setProperty( PbsProperty::NumTextures,
+                             datablock->mTexturesDescSet->mTextures.size() - envMap );
 
-                {
-                    uint8 idxToDescTex = datablock->getIndexToDescriptorTexture( PBSM_DIFFUSE );
-                    if( idxToDescTex < datablock->mTexturesDescSet->mTextures.size() )
-                        numTextures = std::max<uint8>( numTextures, idxToDescTex + 1u );
-                }
-            }
-            setProperty( PbsProperty::NumTextures, numTextures );
+                setTextureProperty( PbsProperty::DiffuseMap, datablock, PBSM_DIFFUSE );
+                setTextureProperty( PbsProperty::DetailWeightMap, datablock, PBSM_DETAIL_WEIGHT );
 
-            //Set the blending mode as a piece again
-            for( size_t i=0; i<4; ++i )
-            {
-                uint8 blendMode = datablock->mBlendModes[i];
-                if( datablock->getTexture( PBSM_DETAIL0 + i ) )
+                if( getProperty( PbsProperty::DiffuseMap ) )
                 {
-                    inOutPieces[PixelShader][*PbsProperty::BlendModes[i]] =
-                                                    "@insertpiece( " + c_pbsBlendModes[blendMode] + ")";
+                    if( datablock->getUseDiffuseMapAsGrayscale() )
+                        setProperty( PbsProperty::DiffuseMapGrayscale, 1 );
                 }
             }
         }
@@ -1011,12 +1109,19 @@ namespace Ogre
             setProperty( PbsProperty::NeedsViewDir, 1 );
         }
 
-        int32 texUnit = mReservedTexSlots;
+        int32 texUnit = mReservedTexBufferSlots;
+
         if( getProperty( HlmsBaseProp::ForwardPlus ) )
         {
+            if( mVaoManager->readOnlyIsTexBuffer() )
+                setTextureReg( PixelShader, "f3dLightList", texUnit++ );
+            else
+                setProperty( "f3dLightList", texUnit++ );
+
             setTextureReg( PixelShader, "f3dGrid", texUnit++ );
-            setTextureReg( PixelShader, "f3dLightList", texUnit++ );
         }
+
+        texUnit += mReservedTexSlots;
 
         bool depthTextureDefined = false;
 
@@ -1059,11 +1164,10 @@ namespace Ogre
             "A material that uses refractions is used in a pass where refractions are unavailable! See "
             "Samples/2.0/ApiUsage/Refractions for which pass refractions must be rendered in" );
 
-        if( getProperty( PbsProperty::IrradianceVolumes ) &&
-            getProperty( HlmsBaseProp::ShadowCaster ) == 0 )
-        {
+        const bool casterPass = getProperty( HlmsBaseProp::ShadowCaster ) != 0;
+
+        if( !casterPass && getProperty( PbsProperty::IrradianceVolumes ) )
             setTextureReg( PixelShader, "irradianceVolume", texUnit++ );
-        }
 
         if( getProperty( PbsProperty::VctNumProbes ) > 0 )
         {
@@ -1152,6 +1256,10 @@ namespace Ogre
             ++texUnit;
         }
 
+        texUnit += mListener->getNumExtraPassTextures( mSetProperties, casterPass );
+
+        setProperty( PbsProperty::Set0TextureSlotEnd, texUnit );
+
         const int32 samplerStateStart = texUnit;
         {
             char tmpData[32];
@@ -1179,6 +1287,11 @@ namespace Ogre
                 setTextureReg( PixelShader, "texEnvProbeMap", texUnit++ );
         }
 
+        setProperty( PbsProperty::Set1TextureSlotEnd, texUnit );
+
+        if( getProperty( HlmsBaseProp::Pose ) )
+            setTextureReg( VertexShader, "poseBuf", texUnit++ );
+
         //This is a regular property!
         setProperty( "samplerStateStart", samplerStateStart );
     }
@@ -1186,21 +1299,11 @@ namespace Ogre
     bool HlmsPbs::requiredPropertyByAlphaTest( IdString keyName )
     {
         bool retVal =
-                keyName == PbsProperty::NumTextures ||
-                keyName == PbsProperty::DiffuseMap ||
-                keyName == PbsProperty::DetailWeightMap ||
-                keyName == PbsProperty::DetailMap0 || keyName == PbsProperty::DetailMap1 ||
-                keyName == PbsProperty::DetailMap2 || keyName == PbsProperty::DetailMap3 ||
-                keyName == PbsProperty::DetailWeights ||
-                keyName == PbsProperty::DetailOffsets0 || keyName == PbsProperty::DetailOffsets1 ||
-                keyName == PbsProperty::DetailOffsets2 || keyName == PbsProperty::DetailOffsets3 ||
                 keyName == PbsProperty::UvDetailWeight ||
                 keyName == PbsProperty::UvDetail0 || keyName == PbsProperty::UvDetail1 ||
                 keyName == PbsProperty::UvDetail2 || keyName == PbsProperty::UvDetail3 ||
-                keyName == PbsProperty::BlendModeIndex0 || keyName == PbsProperty::BlendModeIndex1 ||
-                keyName == PbsProperty::BlendModeIndex2 || keyName == PbsProperty::BlendModeIndex3 ||
-                keyName == PbsProperty::DetailMapsDiffuse ||
-                keyName == HlmsBaseProp::UvCount;
+                keyName == HlmsBaseProp::UvCount ||
+                keyName == PbsProperty::UseTextureAlpha;
 
         for( int i=0; i<8 && !retVal; ++i )
             retVal |= keyName == *HlmsBaseProp::UvCountPtrs[i];
@@ -1240,6 +1343,49 @@ namespace Ogre
         return passBufferPtr;
     }
 #endif
+    //-----------------------------------------------------------------------------------
+    void HlmsPbs::analyzeBarriers( BarrierSolver &barrierSolver,
+                                   ResourceTransitionArray &resourceTransitions, Camera *renderingCamera,
+                                   const bool bCasterPass )
+    {
+        if( bCasterPass )
+            return;
+
+#ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
+        if( mPlanarReflections && mPlanarReflections->cameraMatches( renderingCamera ) )
+        {
+            const size_t maxActiveActors = mPlanarReflections->getMaxActiveActors();
+
+            for( size_t i = 0u; i < maxActiveActors; ++i )
+            {
+                barrierSolver.resolveTransition(
+                    resourceTransitions, mPlanarReflections->getTexture( i ), ResourceLayout::Texture,
+                    ResourceAccess::Read, 1u << PixelShader );
+            }
+        }
+#endif
+        if( mVctLighting )
+        {
+            TextureGpu **lightVoxelTexs = mVctLighting->getLightVoxelTextures();
+            const size_t numVctTextures = mVctLighting->getNumVoxelTextures();
+            for( size_t i = 0; i < numVctTextures; ++i )
+            {
+                barrierSolver.resolveTransition( resourceTransitions, lightVoxelTexs[i],
+                                                 ResourceLayout::Texture, ResourceAccess::Read,
+                                                 1u << PixelShader );
+            }
+        }
+
+        if( mIrradianceField )
+        {
+            barrierSolver.resolveTransition(  //
+                resourceTransitions, mIrradianceField->getIrradianceTex(), ResourceLayout::Texture,
+                ResourceAccess::Read, 1u << PixelShader );
+            barrierSolver.resolveTransition(
+                resourceTransitions, mIrradianceField->getDepthVarianceTex(), ResourceLayout::Texture,
+                ResourceAccess::Read, 1u << PixelShader );
+        }
+    }
     //-----------------------------------------------------------------------------------
     HlmsCache HlmsPbs::preparePassHash( const CompositorShadowNode *shadowNode, bool casterPass,
                                         bool dualParaboloid, SceneManager *sceneManager )
@@ -1551,7 +1697,7 @@ namespace Ogre
             {
                 mapSize += forwardPlus->getConstBufferSize();
                 mGridBuffer             = forwardPlus->getGridBuffer( cameras.cullingCamera );
-                mGlobalLightListBuffer = forwardPlus->getGlobalLightListBuffer( cameras.cullingCamera );
+                mGlobalLightListBuffer  = forwardPlus->getGlobalLightListBuffer( cameras.cullingCamera );
 
                 if( forwardPlus->getDecalsEnabled() )
                 {
@@ -1824,6 +1970,14 @@ namespace Ogre
                 for( size_t i=0u; i<4u; ++i )
                     *passBufferPtr++ = 0.0f;
             }
+        }
+
+        if( mRenderSystem->getInvertedClipSpaceY() )
+        {
+            projectionMatrix[1][0] = -projectionMatrix[1][0];
+            projectionMatrix[1][1] = -projectionMatrix[1][1];
+            projectionMatrix[1][2] = -projectionMatrix[1][2];
+            projectionMatrix[1][3] = -projectionMatrix[1][3];
         }
 
         //vec4 clipPlane0
@@ -2592,10 +2746,10 @@ namespace Ogre
         //mTexBuffers must hold at least one buffer to prevent out of bound exceptions.
         if( mTexBuffers.empty() )
         {
-            size_t bufferSize = std::min<size_t>( mTextureBufferDefaultSize,
-                                                  mVaoManager->getTexBufferMaxSize() );
-            TexBufferPacked *newBuffer = mVaoManager->createTexBuffer( PFG_RGBA32_FLOAT, bufferSize,
-                                                                       BT_DYNAMIC_PERSISTENT, 0, false );
+            size_t bufferSize =
+                std::min<size_t>( mTextureBufferDefaultSize, mVaoManager->getReadOnlyBufferMaxSize() );
+            ReadOnlyBufferPacked *newBuffer = mVaoManager->createReadOnlyBuffer(
+                PFG_RGBA32_FLOAT, bufferSize, BT_DYNAMIC_PERSISTENT, 0, false );
             mTexBuffers.push_back( newBuffer );
         }
 
@@ -2610,15 +2764,18 @@ namespace Ogre
         else
             mCurrentShadowmapSamplerblock = mShadowmapCmpSamplerblock;
 
-        mTexUnitSlotStart = mPreparedPass.shadowMaps.size() + mReservedTexSlots;
-#ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
-        if( mHasPlanarReflections )
-            mTexUnitSlotStart += 1;
-#endif
+        mTexBufUnitSlotEnd = mReservedTexBufferSlots;
+        mTexUnitSlotStart = mPreparedPass.shadowMaps.size() + mReservedTexSlots +
+                            mReservedTexBufferSlots +
+                            mListener->getNumExtraPassTextures( mSetProperties, casterPass );
+
         if( !casterPass )
         {
             if( mGridBuffer )
+            {
                 mTexUnitSlotStart += 2;
+                mTexBufUnitSlotEnd += 2;
+            }
             if( mIrradianceVolume )
                 mTexUnitSlotStart += 1;
             if( mVctLighting )
@@ -2663,6 +2820,11 @@ namespace Ogre
                     ++mTexUnitSlotStart;
                 }
             }
+
+#ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
+            if( mHasPlanarReflections )
+                mTexUnitSlotStart += 1;
+#endif
         }
 
         uploadDirtyDatablocks();
@@ -2740,17 +2902,19 @@ namespace Ogre
                     CbShaderBuffer( PixelShader, 6, light2Buffer, 0, light2Buffer->getTotalSizeBytes() );
             }
 
+            size_t texUnit = mReservedTexBufferSlots;
+
             if( !casterPass )
             {
-                size_t texUnit = mReservedTexSlots;
-
                 if( mGridBuffer )
                 {
                     *commandBuffer->addCommand<CbShaderBuffer>() =
-                            CbShaderBuffer( PixelShader, texUnit++, mGridBuffer, 0, 0 );
-                    *commandBuffer->addCommand<CbShaderBuffer>() =
                             CbShaderBuffer( PixelShader, texUnit++, mGlobalLightListBuffer, 0, 0 );
+                    *commandBuffer->addCommand<CbShaderBuffer>() =
+                            CbShaderBuffer( PixelShader, texUnit++, mGridBuffer, 0, 0 );
                 }
+
+                texUnit += mReservedTexSlots;
 
                 if( !mPrePassTextures->empty() )
                 {
@@ -2762,14 +2926,16 @@ namespace Ogre
 
                 if( mPrePassMsaaDepthTexture )
                 {
-                    *commandBuffer->addCommand<CbTexture>() =
-                            CbTexture( texUnit++, mPrePassMsaaDepthTexture, 0 );
+                    *commandBuffer->addCommand<CbTexture>() = CbTexture(
+                        texUnit++, mPrePassMsaaDepthTexture, 0,
+                        PixelFormatGpuUtils::isDepth( mPrePassMsaaDepthTexture->getPixelFormat() ) );
                 }
 
                 if( mDepthTexture )
                 {
-                    *commandBuffer->addCommand<CbTexture>() =
-                            CbTexture( texUnit++, mDepthTexture, mDecalsSamplerblock );
+                    *commandBuffer->addCommand<CbTexture>() = CbTexture(
+                        texUnit++, mDepthTexture, mDecalsSamplerblock,
+                        PixelFormatGpuUtils::isDepth( mDepthTexture->getPixelFormat() ) );
                 }
 
                 if( mSsrTexture )
@@ -2780,8 +2946,9 @@ namespace Ogre
 
                 if( mDepthTextureNoMsaa && mDepthTextureNoMsaa != mPrePassMsaaDepthTexture )
                 {
-                    *commandBuffer->addCommand<CbTexture>() =
-                            CbTexture( texUnit++, mDepthTextureNoMsaa, mDecalsSamplerblock );
+                    *commandBuffer->addCommand<CbTexture>() = CbTexture(
+                        texUnit++, mDepthTextureNoMsaa, mDecalsSamplerblock,
+                        PixelFormatGpuUtils::isDepth( mDepthTextureNoMsaa->getPixelFormat() ) );
                 }
 
                 if( mRefractionsTexture )
@@ -2903,7 +3070,7 @@ namespace Ogre
 #ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
             mLastBoundPlanarReflection = 0u;
 #endif
-            mListener->hlmsTypeChanged( casterPass, commandBuffer, datablock );
+            mListener->hlmsTypeChanged( casterPass, commandBuffer, datablock, texUnit );
         }
 
         //Don't bind the material buffer on caster passes (important to keep
@@ -3196,11 +3363,14 @@ namespace Ogre
         #endif
                 }
 
-                TexBufferPacked* poseBuf = queuedRenderable.renderable->getPoseTexBuffer();
-                *commandBuffer->addCommand<CbShaderBuffer>() = CbShaderBuffer( VertexShader,
-                                                                               4, poseBuf, 0,
-                                                                               poseBuf->
-                                                                               getTotalSizeBytes() );
+                size_t numTextures = 0u;
+                if( datablock->mTexturesDescSet )
+                    numTextures = datablock->mTexturesDescSet->mTextures.size();
+
+                TexBufferPacked *poseBuf = queuedRenderable.renderable->getPoseTexBuffer();
+                *commandBuffer->addCommand<CbShaderBuffer>() =
+                    CbShaderBuffer( VertexShader, mTexUnitSlotStart + numTextures, poseBuf, 0,
+                                    poseBuf->getTotalSizeBytes() );
             }
 
             //If the next entity will not be skeletally animated, we'll need
@@ -3230,8 +3400,8 @@ namespace Ogre
         if( !casterPass || datablock->getAlphaTest() != CMPF_ALWAYS_PASS )
         {
 #ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
-            if( mHasPlanarReflections &&
-                (queuedRenderable.renderable->mCustomParameter & 0x80) &&
+            if( !casterPass && mHasPlanarReflections &&
+                (queuedRenderable.renderable->mCustomParameter & 0x80 /* UseActiveActor */) &&
                 mLastBoundPlanarReflection != queuedRenderable.renderable->mCustomParameter )
             {
                 const uint8 activeActorIdx = queuedRenderable.renderable->mCustomParameter & 0x7F;
@@ -3357,11 +3527,11 @@ namespace Ogre
         if( mPrePassMsaaDepthTexture )
         {
             //We need to unbind the depth texture, it may be used as a depth buffer later.
-            size_t texUnit = mGridBuffer ? (mReservedTexSlots + 2u) : mReservedTexSlots;
+            size_t texUnit = mReservedTexBufferSlots + mReservedTexSlots + (mGridBuffer ? 2u : 0u);
             if( !mPrePassTextures->empty() )
                 texUnit += 2;
 
-            mRenderSystem->_setTexture( texUnit, 0 );
+            mRenderSystem->_setTexture( texUnit, 0, false );
         }
     }
     //-----------------------------------------------------------------------------------
@@ -3499,6 +3669,7 @@ namespace Ogre
     void HlmsPbs::setShadowSettings( ShadowFilter filter )
     {
         mShadowFilter = filter;
+        ShadowCameraSetup::setUseEsm( filter == ExponentialShadowMaps );
     }
     //-----------------------------------------------------------------------------------
     void HlmsPbs::setEsmK( uint16 K )
@@ -3535,6 +3706,8 @@ namespace Ogre
     void HlmsPbs::setPlanarReflections( PlanarReflections *planarReflections )
     {
         mPlanarReflections = planarReflections;
+        if( !mPlanarReflections )
+            mHasPlanarReflections = false;
     }
     //-----------------------------------------------------------------------------------
     PlanarReflections* HlmsPbs::getPlanarReflections(void) const

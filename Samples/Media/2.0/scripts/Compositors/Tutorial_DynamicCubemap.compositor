@@ -14,6 +14,8 @@ abstract target cubemap_target
 			stencil			dont_care
 		}
 
+		expose cubemap
+
 		//Filter stuff that shouldn't be reflected (vampires?)
 		visibility_mask		0x00000005
 		overlays			off
@@ -119,7 +121,7 @@ compositor_node Tutorial_DynamicCubemapRenderingNode
 			shadows		Tutorial_DynamicCubemapShadowNode
 			overlays	off
 			rq_first	0
-			rq_last		2
+			rq_last		200
 		}
 
 		//Render sky (see TutorialSky_Postprocess)
@@ -143,7 +145,7 @@ compositor_node Tutorial_DynamicCubemapRenderingNode
 				stencil			dont_care
 			}
 			overlays	on
-			rq_first	2
+			rq_first	200
 		}
 	}
 }

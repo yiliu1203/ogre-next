@@ -42,9 +42,6 @@ namespace Ogre {
     class GLES2RTTManager;
     class GLES2GpuProgramManager;
     class GLSLESShaderFactory;
-#if !OGRE_NO_GLES2_CG_SUPPORT
-    class GLSLESCgProgramFactory;
-#endif
     namespace v1 {
     class HardwareBufferManager;
     }
@@ -109,9 +106,6 @@ namespace Ogre {
 
             GLES2GpuProgramManager *mGpuProgramManager;
             GLSLESShaderFactory* mGLSLESShaderFactory;
-#if !OGRE_NO_GLES2_CG_SUPPORT
-            GLSLESCgProgramFactory* mGLSLESCgProgramFactory;
-#endif
             v1::HardwareBufferManager* mHardwareBufferManager;
 
             /** Manager object for creating render textures.
@@ -288,7 +282,7 @@ namespace Ogre {
             /** See
              RenderSystem
              */
-            void _setTexture(size_t unit, bool enabled, Texture *tex);
+            void _setTexture(size_t unit, bool enabled, Texture *tex, bool bDepthReadOnly);
             /** See
              RenderSystem
              */
@@ -312,8 +306,6 @@ namespace Ogre {
                                        size_t offset = 0, size_t sizeBytes = 0 );
 
             virtual void clearUAVs(void);
-
-            virtual void flushUAVs(void);
  
             virtual void _bindTextureUavCS( uint32 slot, Texture *texture,
                                             ResourceAccess::ResourceAccess access,

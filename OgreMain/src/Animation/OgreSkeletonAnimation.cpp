@@ -70,8 +70,8 @@ namespace Ogre
         {
             if( itor->getUsedSlots() <= (ARRAY_PACKED_REALS >> 1) )
             {
-                size_t level = itor->getBoneBlockIdx() >> 24;
-                size_t slotStart = slotStarts[level];
+                const size_t level = itor->getBoneBlockIdx() >> 24;
+                const size_t slotStart = slotStarts[level];
 
                 for( size_t i=0; i<slotStart; ++i )
                     boneWeightsScalar[i] = 0.0f;
@@ -92,6 +92,44 @@ namespace Ogre
         }
     }
     //-----------------------------------------------------------------------------------
+    void SkeletonAnimation::_boneMemoryRebased( const FastArray<size_t> &oldSlotStarts )
+    {
+        const FastArray<size_t> &slotStarts = *mSlotStarts;
+        ArrayReal *boneWeights = mBoneWeights.get();
+        Real *boneWeightsScalar = reinterpret_cast<Real *>( mBoneWeights.get() );
+
+        SkeletonTrackVec::const_iterator itor = mDefinition->mTracks.begin();
+        SkeletonTrackVec::const_iterator endt = mDefinition->mTracks.end();
+
+        while( itor != endt )
+        {
+            if( itor->getUsedSlots() <= ( ARRAY_PACKED_REALS >> 1 ) )
+            {
+                const size_t level = itor->getBoneBlockIdx() >> 24;
+                const size_t slotStart = slotStarts[level];
+                const size_t oldSlotStart = oldSlotStarts[level];
+
+                Real oldBoneWeights[ARRAY_PACKED_REALS];
+                memcpy( oldBoneWeights, boneWeightsScalar, sizeof( oldBoneWeights ) );
+
+                for( size_t i = 0u; i < slotStart; ++i )
+                    boneWeightsScalar[i] = 0.0f;
+                for( size_t i = slotStart; i < slotStart + itor->getUsedSlots(); ++i )
+                    boneWeightsScalar[i] = oldBoneWeights[i - slotStart + oldSlotStart];
+                for( size_t i = slotStart + itor->getUsedSlots(); i < ARRAY_PACKED_REALS; ++i )
+                    boneWeightsScalar[i] = 0.0f;
+            }
+            else
+            {
+                *boneWeights = Mathlib::ONE;
+            }
+
+            boneWeightsScalar += ARRAY_PACKED_REALS;
+            ++boneWeights;
+            ++itor;
+        }
+    }
+    //-----------------------------------------------------------------------------------
     void SkeletonAnimation::addFrame( Real frames )
     {
         mCurrentFrame += frames;
@@ -99,12 +137,12 @@ namespace Ogre
 
         if( !mLoop )
         {
-            mCurrentFrame = Ogre::max( mCurrentFrame, 0 );
-            mCurrentFrame = Ogre::min( mCurrentFrame, maxFrame );
+            mCurrentFrame = std::max( mCurrentFrame, Real( 0.0f ) );
+            mCurrentFrame = std::min( mCurrentFrame, maxFrame );
         }
         else
         {
-            mCurrentFrame = fmod( mCurrentFrame, maxFrame );
+            mCurrentFrame = std::fmod( mCurrentFrame, maxFrame );
             if( mCurrentFrame < 0 )
                 mCurrentFrame = maxFrame + mCurrentFrame;
         }
@@ -117,12 +155,12 @@ namespace Ogre
 
         if( !mLoop )
         {
-            mCurrentFrame = Ogre::max( mCurrentFrame, 0 );
-            mCurrentFrame = Ogre::min( mCurrentFrame, maxFrame );
+            mCurrentFrame = std::max( mCurrentFrame, Real( 0.0f ) );
+            mCurrentFrame = std::min( mCurrentFrame, maxFrame );
         }
         else
         {
-            mCurrentFrame = fmod( mCurrentFrame, maxFrame );
+            mCurrentFrame = std::fmod( mCurrentFrame, maxFrame );
             if( mCurrentFrame < 0 )
                 mCurrentFrame = maxFrame + mCurrentFrame;
         }
@@ -180,6 +218,80 @@ namespace Ogre
         }
 
         return retVal;
+    }
+    //-----------------------------------------------------------------------------------
+    void SkeletonAnimation::setOverrideBoneWeightsOnActiveAnimations( const Real constantWeight,
+                                                                      const bool bPerBone )
+    {
+        const ActiveAnimationsVec &activeAnimations = mOwner->getActiveAnimations();
+        ActiveAnimationsVec::const_iterator itor = activeAnimations.begin();
+        ActiveAnimationsVec::const_iterator endt = activeAnimations.end();
+
+        while( itor != endt )
+        {
+            SkeletonAnimation *otherAnim = *itor;
+            if( otherAnim != this )
+            {
+                map<IdString, size_t>::type::const_iterator itBone = mDefinition->mBoneToWeights.begin();
+                map<IdString, size_t>::type::const_iterator enBone = mDefinition->mBoneToWeights.end();
+
+                while( itBone != enBone )
+                {
+                    Real finalWeight = constantWeight;
+                    if( bPerBone )
+                    {
+                        const size_t level = itBone->second >> 24u;
+                        const size_t offset = itBone->second & 0x00FFFFFFu;
+                        const Real *aliasedBoneWeights =
+                            reinterpret_cast<const Real *>( mBoneWeights.get() ) + offset +
+                            ( *mSlotStarts )[level];
+                        const Real boneWeight = *aliasedBoneWeights;
+						finalWeight = Math::lerp( 1.0f - boneWeight, constantWeight, boneWeight );
+                    }
+                    otherAnim->setBoneWeight( itBone->first, finalWeight );
+                    ++itBone;
+                }
+            }
+
+            ++itor;
+        }
+    }
+    //-----------------------------------------------------------------------------------
+    void SkeletonAnimation::setOverrideBoneWeightsOnAllAnimations( const Real constantWeight,
+                                                                   const bool bPerBone )
+    {
+        SkeletonAnimationVec &animations = mOwner->getAnimationsNonConst();
+        SkeletonAnimationVec::iterator itor = animations.begin();
+        SkeletonAnimationVec::iterator endt = animations.end();
+
+        while( itor != endt )
+        {
+            SkeletonAnimation *otherAnim = &( *itor );
+            if( otherAnim != this )
+            {
+                map<IdString, size_t>::type::const_iterator itBone = mDefinition->mBoneToWeights.begin();
+                map<IdString, size_t>::type::const_iterator enBone = mDefinition->mBoneToWeights.end();
+
+                while( itBone != enBone )
+                {
+                    Real finalWeight = constantWeight;
+                    if( bPerBone )
+                    {
+                        const size_t level = itBone->second >> 24u;
+                        const size_t offset = itBone->second & 0x00FFFFFFu;
+                        const Real *aliasedBoneWeights =
+                            reinterpret_cast<const Real *>( mBoneWeights.get() ) + offset +
+                            ( *mSlotStarts )[level];
+                        const Real boneWeight = *aliasedBoneWeights;
+                        finalWeight = Math::lerp( 1.0f - boneWeight, constantWeight, boneWeight );
+                    }
+                    otherAnim->setBoneWeight( itBone->first, finalWeight );
+                    ++itBone;
+                }
+            }
+
+            ++itor;
+        }
     }
     //-----------------------------------------------------------------------------------
     void SkeletonAnimation::setEnabled( bool bEnable )

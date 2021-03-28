@@ -49,6 +49,7 @@ THE SOFTWARE.
 #include "OgrePlugin.h"
 #include "OgreFileSystem.h"
 #include "OgreResourceBackgroundQueue.h"
+#include "OgreTextureGpuManager.h"
 #include "OgreDecal.h"
 #include "OgreInternalCubemapProbe.h"
 #include "OgreEntity.h"
@@ -133,9 +134,10 @@ namespace Ogre {
 #endif
 
     //-----------------------------------------------------------------------
-    Root::Root(const String& pluginFileName, const String& configFileName,
-        const String& logFileName)
-      : mQueuedEnd(false)
+    Root::Root( const String &pluginFileName, const String &configFileName, const String &logFileName,
+                const String &appName ) :
+        mAppName( appName )
+      , mQueuedEnd(false)
       , mLogManager(0)
       , mRenderSystemCapabilitiesManager(0)
       , mFrameStats(0)
@@ -572,7 +574,7 @@ namespace Ogre {
         while (iSection.hasMoreElements())
         {
             const String& renderSystem = iSection.peekNextKey();
-            const ConfigFile::SettingsMultiMap& settings = *iSection.getNext();
+            ConfigFile::SettingsMultiMap settings = *iSection.getNext(); // Hard copy
 
             RenderSystem* rs = getRenderSystemByName(renderSystem);
             if (!rs)
@@ -583,6 +585,17 @@ namespace Ogre {
 
             try
             {
+                for( size_t i = 0; i < rs->getNumPriorityConfigOptions(); ++i )
+                {
+                    const char *configName = rs->getPriorityConfigOption( i );
+                    ConfigFile::SettingsMultiMap::iterator itor = settings.find( configName );
+                    if( itor != settings.end() )
+                    {
+                        rs->setConfigOption( itor->first, itor->second );
+                        settings.erase( itor );
+                    }
+                }
+
                 ConfigFile::SettingsMultiMap::const_iterator i;
                 for (i = settings.begin(); i != settings.end(); ++i)
                 {
@@ -616,7 +629,8 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     bool Root::showConfigDialog( ConfigDialog* aCustomDialog /*= 0*/ )
     {
-#if OGRE_PLATFORM == OGRE_PLATFORM_NACL || OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN
+#if OGRE_PLATFORM == OGRE_PLATFORM_NACL || OGRE_PLATFORM == OGRE_PLATFORM_EMSCRIPTEN || \
+    defined( OGRE_CONFIG_UNIX_NO_X11 )
         OGRE_EXCEPT(Exception::ERR_CANNOT_WRITE_TO_FILE, "showConfigDialog is not supported on NaCl",
             "Root::showConfigDialog");
 #endif
@@ -682,6 +696,7 @@ namespace Ogre {
             mActiveRenderer->shutdown();
 
             OGRE_DELETE mCompositorManager2;
+            mCompositorManager2 = 0;
         }
 
         mActiveRenderer = system;
@@ -691,8 +706,7 @@ namespace Ogre {
         // Tell scene managers
         SceneManagerEnumerator::getSingleton().setRenderSystem(system);
 
-        if(RenderSystem::Listener* ls = RenderSystem::getSharedListener())
-            ls->eventOccurred("RenderSystemChanged");
+        RenderSystem::fireSharedEvent("RenderSystemChanged");
     }
     //-----------------------------------------------------------------------
     void Root::addRenderSystem(RenderSystem *newRend)
@@ -1168,6 +1182,8 @@ namespace Ogre {
         // ensure shutdown before destroying resource manager.
         mResourceBackgroundQueue->shutdown();
         mWorkQueue->shutdown();
+        if( mActiveRenderer && mActiveRenderer->getTextureGpuManager() )
+            mActiveRenderer->getTextureGpuManager()->shutdown();
 
 		OGRE_DELETE mCompositorManager2;
         mCompositorManager2 = 0;

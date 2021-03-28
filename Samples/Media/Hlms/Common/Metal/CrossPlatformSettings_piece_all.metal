@@ -47,6 +47,9 @@ inline float3x3 toMat3x3( float3x4 m )
 #define discard discard_fragment()
 
 #define inVs_vertex input.position
+#define inVs_normal input.normal
+#define inVs_tangent input.tangent
+#define inVs_binormal input.binormal
 #define inVs_blendWeights input.blendWeights
 #define inVs_blendIndices input.blendIndices
 #define inVs_qtangent input.qtangent
@@ -100,6 +103,8 @@ inline float3x3 toMat3x3( float3x4 m )
 
 #define bufferFetch( buffer, idx ) buffer[idx]
 #define bufferFetch1( buffer, idx ) buffer[idx]
+#define readOnlyFetch( bufferVar, idx ) bufferVar[idx]
+#define readOnlyFetch1( bufferVar, idx ) bufferVar[idx]
 
 #define structuredBufferFetch( buffer, idx ) buffer[idx]
 

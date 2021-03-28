@@ -33,6 +33,7 @@ THE SOFTWARE.
 
 #include "OgreMovableObject.h"
 #include "OgreRenderable.h"
+#include "OgreHardwareVertexBuffer.h"
 #include "OgreRadixSort.h"
 #include "OgreCommon.h"
 #include "OgreResourceGroupManager.h"
@@ -535,7 +536,7 @@ namespace v1 {
         @see
             MovableObject
         */
-        virtual void _notifyCurrentCamera( const Camera* cam );
+        virtual void _notifyCurrentCamera( const Camera* camera, const Camera* lodCamera );
 
         /** Begin injection of billboard data; applicable when 
             constructing the BillboardSet for external data use.

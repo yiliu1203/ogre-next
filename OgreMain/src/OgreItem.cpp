@@ -62,6 +62,14 @@ namespace Ogre {
         mObjectData.mQueryFlags[mObjectData.mIndex] = SceneManager::QUERY_ENTITY_DEFAULT_MASK;
     }
     //-----------------------------------------------------------------------
+    void Item::loadingComplete(Resource* res)
+    {
+        if(res == mMesh.get() && mInitialised)
+        {
+            _initialise(true);
+        }
+    }
+    //-----------------------------------------------------------------------
     void Item::_initialise(bool forceReinitialise)
     {
         vector<String>::type prevMaterialsList;
@@ -79,12 +87,8 @@ namespace Ogre {
         if (mInitialised)
             return;
 
-        if (mMesh->isBackgroundLoaded() && !mMesh->isLoaded())
-        {
-            // register for a callback when mesh is finished loading
-            // do this before asking for load to happen to avoid race
-            mMesh->addListener(this);
-        }
+        // register for a callback when mesh is finished loading
+        mMesh->addListener(this);
         
         // On-demand load
         mMesh->load();
@@ -124,6 +128,11 @@ namespace Ogre {
         mObjectData.mWorldAabb->setFromAabb( aabb, mObjectData.mIndex );
         mObjectData.mLocalRadius[mObjectData.mIndex] = aabb.getRadius();
         mObjectData.mWorldRadius[mObjectData.mIndex] = aabb.getRadius();
+        if( mParentNode )
+        {
+            updateSingleWorldAabb();
+            updateSingleWorldRadius();
+        }
 
         mInitialised = true;
     }
@@ -156,16 +165,6 @@ namespace Ogre {
         _deinitialise();
         // Unregister our listener
         mMesh->removeListener(this);
-    }
-    //-----------------------------------------------------------------------
-    void Item::_releaseManualHardwareResources()
-    {
-        // do not call _deinitialise() here to preserve material names
-    }
-    //-----------------------------------------------------------------------
-    void Item::_restoreManualHardwareResources()
-    {
-        _initialise(true);
     }
     //-----------------------------------------------------------------------
     const MeshPtr& Item::getMesh(void) const

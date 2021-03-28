@@ -429,14 +429,10 @@ namespace v1 {
         for (unsigned short b = 0; b < numvbufs; ++b)
         {
             // Lock old buffer
-            HardwareVertexBufferSharedPtr oldBuf =
-                vd->vertexBufferBinding->getBuffer(b);
+            HardwareVertexBufferSharedPtr oldBuf = vd->vertexBufferBinding->getBuffer(b);
             // Create new buffer
-            HardwareVertexBufferSharedPtr newBuf =
-                HardwareBufferManager::getSingleton().createVertexBuffer(
-                    oldBuf->getVertexSize(),
-                    indexRemap.size(),
-                    HardwareBuffer::HBU_STATIC);
+            HardwareVertexBufferSharedPtr newBuf = vd->_getHardwareBufferManager()->createVertexBuffer(
+                oldBuf->getVertexSize(), indexRemap.size(), HardwareBuffer::HBU_STATIC);
             // rebind
             newvd->vertexBufferBinding->setBinding(b, newBuf);
 
@@ -464,10 +460,8 @@ namespace v1 {
         }
 
         // Now create a new index buffer
-        HardwareIndexBufferSharedPtr ibuf =
-            HardwareBufferManager::getSingleton().createIndexBuffer(
-                id->indexBuffer->getType(), id->indexCount,
-                HardwareBuffer::HBU_STATIC);
+        HardwareIndexBufferSharedPtr ibuf = vd->_getHardwareBufferManager()->createIndexBuffer(
+            id->indexBuffer->getType(), id->indexCount, HardwareBuffer::HBU_STATIC);
 
         HardwareBufferLockGuard srcIndexLock(id->indexBuffer,
                                              id->indexStart * id->indexBuffer->getIndexSize(), 
@@ -733,7 +727,7 @@ namespace v1 {
         for (ushort lod = 1; lod < lodLevels; ++lod)
         {
             const MeshLodUsage& meshLod = qmesh->submesh->parent->getLodLevel(lod);
-            mLodValues[lod] = Ogre::max(mLodValues[lod], meshLod.value);
+            mLodValues[lod] = std::max(mLodValues[lod], meshLod.value);
         }
 
         // update bounds
@@ -1222,9 +1216,8 @@ namespace v1 {
         VertexBufferBinding* binds = mVertexData->vertexBufferBinding;
 
         // create index buffer, and lock
-        mIndexData->indexBuffer = HardwareBufferManager::getSingleton()
-            .createIndexBuffer(mIndexType, mIndexData->indexCount,
-                HardwareBuffer::HBU_STATIC_WRITE_ONLY);
+        mIndexData->indexBuffer = mVertexData->_getHardwareBufferManager()->createIndexBuffer(
+            mIndexType, mIndexData->indexCount, HardwareBuffer::HBU_STATIC_WRITE_ONLY);
         HardwareBufferLockGuard dstIndexLock(mIndexData->indexBuffer, HardwareBuffer::HBL_DISCARD);
         uint32* p32Dest = static_cast<uint32*>(dstIndexLock.pData);
         uint16* p16Dest = static_cast<uint16*>(dstIndexLock.pData);
@@ -1239,10 +1232,8 @@ namespace v1 {
         {
             size_t vertexCount = mVertexData->vertexCount;
             HardwareVertexBufferSharedPtr vbuf =
-                HardwareBufferManager::getSingleton().createVertexBuffer(
-                    dcl->getVertexSize(b),
-                    vertexCount,
-                    HardwareBuffer::HBU_STATIC_WRITE_ONLY);
+                mVertexData->_getHardwareBufferManager()->createVertexBuffer(
+                    dcl->getVertexSize( b ), vertexCount, HardwareBuffer::HBU_STATIC_WRITE_ONLY);
             binds->setBinding(b, vbuf);
             dstBufferLocks[b].lock(vbuf, HardwareBuffer::HBL_DISCARD);
             dstBufferPtrs.push_back(static_cast<uchar*>(dstBufferLocks[b].pData));

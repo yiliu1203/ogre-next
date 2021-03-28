@@ -672,6 +672,9 @@ namespace Ogre
                     mRegisteredHlms[i]->_clearShaderCache();
             }
 
+            if( mComputeHlms )
+                mComputeHlms->_clearShaderCache();
+
             {
                 BlockIdxVec::const_iterator itor = mActiveBlocks[BLOCK_MACRO].begin();
                 BlockIdxVec::const_iterator end  = mActiveBlocks[BLOCK_MACRO].end();
@@ -727,6 +730,17 @@ namespace Ogre
                     //const_cast see HlmsManager::destroyDescriptorSetTexture comments
                     DescriptorSetSampler *descSetPtr = const_cast<DescriptorSetSampler*>( &(*itor) );
                     mRenderSystem->_descriptorSetSamplerDestroyed( descSetPtr );
+                    ++itor;
+                }
+            }
+            {
+                DescriptorSetUavSet::iterator itor = mDescriptorSetUavs.begin();
+                DescriptorSetUavSet::iterator end  = mDescriptorSetUavs.end();
+                while( itor != end )
+                {
+                    //const_cast see HlmsManager::destroyDescriptorSetTexture comments
+                    DescriptorSetUav *descSetPtr = const_cast<DescriptorSetUav*>( &(*itor) );
+                    mRenderSystem->_descriptorSetUavDestroyed( descSetPtr );
                     ++itor;
                 }
             }
@@ -799,6 +813,17 @@ namespace Ogre
                     ++itor;
                 }
             }
+            {
+                DescriptorSetUavSet::iterator itor = mDescriptorSetUavs.begin();
+                DescriptorSetUavSet::iterator end  = mDescriptorSetUavs.end();
+                while( itor != end )
+                {
+                    //const_cast see HlmsManager::destroyDescriptorSetSampler comments
+                    DescriptorSetUav *descSetPtr = const_cast<DescriptorSetUav*>( &(*itor) );
+                    mRenderSystem->_descriptorSetUavCreated( descSetPtr );
+                    ++itor;
+                }
+            }
         }
 
         for( size_t i=0; i<HLMS_MAX; ++i )
@@ -806,6 +831,9 @@ namespace Ogre
             if( mRegisteredHlms[i] )
                 mRegisteredHlms[i]->_changeRenderSystem( newRs );
         }
+
+        if( mComputeHlms )
+            mComputeHlms->_changeRenderSystem( newRs );
     }
 #if !OGRE_NO_JSON
     //-----------------------------------------------------------------------------------

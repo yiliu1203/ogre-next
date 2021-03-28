@@ -4973,6 +4973,8 @@ namespace Ogre{
         prog->setPoseAnimationIncluded(0);
         prog->setSkeletalAnimationIncluded(false);
         prog->setVertexTextureFetchRequired(false);
+        prog->setPrefabRootLayout( PrefabRootLayout::Standard );
+        prog->setReplaceVersionMacro( true );
         prog->_notifyOrigin(obj->file);
 
         // Set the custom parameters
@@ -6258,7 +6260,7 @@ namespace Ogre{
         float widthFactor = 1.0f, heightFactor = 1.0f;
         bool widthSet = false, heightSet = false;
         String fsaa = "1";
-        uint32 textureFlags = TextureFlags::RenderToTexture;
+        uint32 textureFlags = TextureFlags::RenderToTexture | TextureFlags::DiscardableContent;
         uint16 depthBufferId = DepthBuffer::POOL_INVALID;
         PixelFormatGpu depthBufferFormat = PFG_UNKNOWN;
         bool preferDepthTexture = false;
@@ -6356,6 +6358,9 @@ namespace Ogre{
                 break;
             case ID_REINTERPRETABLE:
                 textureFlags |= TextureFlags::Reinterpretable;
+                break;
+            case ID_KEEP_CONTENT:
+                textureFlags &= ~TextureFlags::DiscardableContent;
                 break;
             case ID_DEPTH_POOL:
                 {
@@ -7528,7 +7533,7 @@ namespace Ogre{
                         }
 
                         AbstractNodeList::const_iterator it0 = prop->values.begin();
-                        if( !getReal( *it0, &defaultParams.normalOffsetBias ) )
+                        if( !getFloat( *it0, &defaultParams.normalOffsetBias ) )
                         {
                             compiler->addError( ScriptCompiler::CE_NUMBEREXPECTED, prop->file,
                                                 prop->line );
@@ -7550,7 +7555,7 @@ namespace Ogre{
                         }
 
                         AbstractNodeList::const_iterator it0 = prop->values.begin();
-                        if( !getReal( *it0, &defaultParams.constantBiasScale ) )
+                        if( !getFloat( *it0, &defaultParams.constantBiasScale ) )
                         {
                             compiler->addError( ScriptCompiler::CE_NUMBEREXPECTED, prop->file,
                                                 prop->line );
@@ -9021,7 +9026,7 @@ namespace Ogre{
                             compiler->addError(ScriptCompiler::CE_NUMBEREXPECTED, prop->file, prop->line);
                             return;
                         }
-                        if( !getReal(prop->values.front(), &passClear->mClearDepth) )
+                        if( !getFloat(prop->values.front(), &passClear->mClearDepth) )
                         {
                             compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
                         }
@@ -9872,8 +9877,14 @@ namespace Ogre{
                         compiler->addError(ScriptCompiler::CE_STRINGEXPECTED, prop->file, prop->line);
                         return;
                     }
-                    if(!getBoolean(prop->values.front(), &passStencil->mStencilParams.enabled))
-                        compiler->addError(ScriptCompiler::CE_INVALIDPARAMETERS, prop->file, prop->line);
+                    bool bEnabled;
+                    if( getBoolean( prop->values.front(), &bEnabled ) )
+                        passStencil->mStencilParams.enabled = bEnabled;
+                    else
+                    {
+                        compiler->addError( ScriptCompiler::CE_INVALIDPARAMETERS, prop->file,
+                                            prop->line );
+                    }
                     break;
                 case ID_REF_VALUE:
                     if(prop->values.empty())

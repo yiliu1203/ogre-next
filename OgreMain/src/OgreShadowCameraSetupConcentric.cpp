@@ -80,11 +80,13 @@ namespace Ogre
             texCam->setProjectionType( PT_ORTHOGRAPHIC );
             // Anything will do, there are no casters. But we must ensure depth of the receiver
             // doesn't become negative else a shadow square will appear (i.e. "the sun is below the
-            // floor")
+            // floor"). On the other hand our implementation of the exponential shadow maps is tolerable
+            // for negative depths but intolerable for too large positive
             const Real farDistance =
-                Ogre::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
+                std::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
             texCam->setPosition( cam->getDerivedPosition() -
-                                 light->getDerivedDirection() * farDistance );
+                                 light->getDerivedDirection() *
+                                     ( mUseEsm ? -farDistance : farDistance ) );
             texCam->setOrthoWindow( 1, 1 );
             texCam->setNearClipDistance( 1.0f );
             texCam->setFarClipDistance( 1.1f );
@@ -97,7 +99,7 @@ namespace Ogre
         }
 
         const Node *lightNode = light->getParentNode();
-        const Real farDistance = Ogre::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
+        const Real farDistance = std::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
         const Quaternion scalarLightSpaceToWorld( lightNode->_getDerivedOrientation() );
         const Quaternion scalarWorldToLightSpace( scalarLightSpaceToWorld.Inverse() );
         ArrayQuaternion worldToLightSpace;
@@ -182,8 +184,8 @@ namespace Ogre
         const Real worldTexelSizeY = ( texCam->getOrthoWindowHeight() ) / viewportRealSize.y;
 
         // snap to nearest texel
-        shadowCameraPos.x -= fmod( shadowCameraPos.x, worldTexelSizeX );
-        shadowCameraPos.y -= fmod( shadowCameraPos.y, worldTexelSizeY );
+        shadowCameraPos.x -= std::fmod( shadowCameraPos.x, worldTexelSizeX );
+        shadowCameraPos.y -= std::fmod( shadowCameraPos.y, worldTexelSizeY );
 
         // Go back from light space to world space
         shadowCameraPos = scalarLightSpaceToWorld * shadowCameraPos;

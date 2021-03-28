@@ -35,6 +35,7 @@ THE SOFTWARE.
 #include "OgreCommon.h"
 
 #include "OgreRenderSystemCapabilities.h"
+#include "OgreResourceTransition.h"
 #include "OgreConfigOptionMap.h"
 #include "OgreGpuProgram.h"
 #include "OgrePlane.h"
@@ -43,6 +44,8 @@ THE SOFTWARE.
 #include "OgrePixelFormatGpu.h"
 #include "OgreViewport.h"
 #include "OgreHeaderPrefix.h"
+
+struct RENDERDOC_API_1_4_1;
 
 namespace Ogre
 {
@@ -83,6 +86,12 @@ namespace Ogre
         NameValuePairList   miscParams;
     };
 
+    struct BoundUav
+    {
+        GpuTrackedResource *rttOrBuffer;
+        ResourceAccess::ResourceAccess boundAccess;
+    };
+
     /// Render window creation parameters container.
     typedef vector<RenderWindowDescription>::type RenderWindowDescriptionList;
 
@@ -112,17 +121,6 @@ namespace Ogre
     class _OgreExport RenderSystem : public RenderSysAlloc
     {
     public:
-        struct _OgreExport Metrics
-        {
-            bool mIsRecordingMetrics;
-            size_t mBatchCount;
-            size_t mFaceCount;
-            size_t mVertexCount;
-            size_t mDrawCount;
-            size_t mInstanceCount;
-            Metrics();
-        };
-
         /** Default Constructor.
         */
         RenderSystem();
@@ -182,6 +180,38 @@ namespace Ogre
         value The value to set the option to.
         */
         virtual void setConfigOption(const String &name, const String &value) = 0;
+
+        /** Some options depend on other options. Therefore it's best to call
+        RenderSystem::setConfigOption in order
+        @param idx
+            Value must be in range [0; getNumPriorityConfigOptions)
+
+            Options must be set in ascending order,
+            i.e. idx = 0 must be called before idx = 1
+        @return
+            The name to use in setConfigOption( name, value )
+        */
+        virtual const char* getPriorityConfigOption( size_t idx ) const;
+
+        /** Number of priority config options in RenderSystem::getPriorityConfigOption
+        @remarks
+            IMPORTANT: The return value can change after calls to setConfigOption,
+            it can even return higher or lower values than before.
+
+            Therefore a proper loop would call getNumPriorityConfigOptions on every iteration:
+
+            @code
+                // GOOD:
+                for( size_t i=0; i < rs->getNumPriorityConfigOptions(); ++i )
+                    rs->setConfigOption( rs->getPriorityConfigOption( i ), value );
+
+                // BAD:
+                const size_t cachedNumOptions = rs->getNumPriorityConfigOptions();
+                for( size_t i=0; i < cachedNumOptions; ++i )
+                    rs->setConfigOption( rs->getPriorityConfigOption( i ), value );
+            @endcode
+        */
+        virtual size_t getNumPriorityConfigOptions( void ) const;
 
         /** Create an object for performing hardware occlusion queries. 
         */
@@ -690,8 +720,10 @@ namespace Ogre
         RenderSystemCapabilites::getNumTextureUnits)
         @param enabled Boolean to turn the unit on/off
         @param texPtr Pointer to the texture to use.
+        @param bDepthReadOnly
+            true if the texture is also attached as a depth buffer but is read only
         */
-        virtual void _setTexture( size_t unit, TextureGpu *texPtr ) = 0;
+        virtual void _setTexture( size_t unit, TextureGpu *texPtr, bool bDepthReadOnly ) = 0;
 
         /** Because Ogre doesn't (yet) have the notion of a 'device' or 'GL context',
             this function lets Ogre know which device should be used by providing
@@ -801,9 +833,14 @@ namespace Ogre
         */
         void queueBindUAVs( const DescriptorSetUav *descSetUav );
 
-        /// Forces to take effect all the queued UAV binding requests. @see _queueBindUAV.
-        /// You don't need to call this if you're going to set the render target next.
-        virtual void flushUAVs(void) = 0;
+        BoundUav getBoundUav( size_t slot ) const;
+
+        /// Call this function if you need to call texture->copyTo or create an AsyncTextureTicket
+        /// on a Texture which is currently in either ResourceLayout::CopySrc or CopyDst layout.
+        ///
+        /// For performance reasons though it is recommended that you wait until
+        /// CompositorManager::_update() is returns
+        void flushTextureCopyOperations( void );
 
         /**
         @param slotStart
@@ -821,9 +858,16 @@ namespace Ogre
         virtual void _setSamplersCS( uint32 slotStart, const DescriptorSetSampler *set ) = 0;
         virtual void _setUavCS( uint32 slotStart, const DescriptorSetUav *set ) = 0;
 
-        virtual void _resourceTransitionCreated( ResourceTransition *resTransition )    {}
-        virtual void _resourceTransitionDestroyed( ResourceTransition *resTransition )  {}
-        virtual void _executeResourceTransition( ResourceTransition *resTransition )    {}
+        /// Required when caller will soon start analyzing barriers (e.g. use BarrierSolver)
+        /// Ogre will flush any pending resource transitions.
+        ///
+        /// Otherwise BarrierSolver will see that a Resource is in a particular state or layout,
+        /// then when calling executeResourceTransition, the pending resource layout
+        /// will be flushed, and now the resource transition resolved by BarrierSolver
+        /// will have the wrong 'old' layout
+        virtual void flushPendingAutoResourceLayouts() {}
+
+        virtual void executeResourceTransition( const ResourceTransitionArray &rstCollection ) {}
 
         virtual void _hlmsPipelineStateObjectCreated( HlmsPso *newPso ) {}
         virtual void _hlmsPipelineStateObjectDestroyed( HlmsPso *pso ) {}
@@ -947,11 +991,11 @@ namespace Ogre
         virtual void _setComputePso( const HlmsComputePso *pso ) = 0;
 
         void _resetMetrics();
-        void _addMetrics( const Metrics &newMetrics );
+        void _addMetrics( const RenderingMetrics &newMetrics );
 
         void setMetricsRecordingEnabled( bool bEnable );
 
-        const Metrics& getMetrics() const;
+        const RenderingMetrics& getMetrics() const;
 
         /** Generates a packed data version of the passed in ColourValue suitable for
         use as with this RenderSystem.
@@ -1249,9 +1293,12 @@ namespace Ogre
         Shared listener could be set even if no render system is selected yet.
         This listener will receive "RenderSystemChanged" event on each Root::setRenderSystem call.
         */
-        static void setSharedListener(Listener* listener);
-        /** Retrieve a pointer to the current shared render system listener. */
-        static Listener* getSharedListener(void);
+        static void addSharedListener(Listener* listener);
+        /** Remove shared listener to the custom events that this render system can raise.
+        */
+        static void removeSharedListener(Listener* listener);
+
+        static void fireSharedEvent(const String& name, const NameValuePairList* params = 0);
 
         /** Adds a listener to the custom events that this render system can raise.
         @remarks
@@ -1347,6 +1394,46 @@ namespace Ogre
         virtual void beginGPUSampleProfile( const String &name, uint32 *hashCache ) = 0;
         virtual void endGPUSampleProfile( const String &name ) = 0;
 
+        /** Programmatically performs a GPU capture when attached to a GPU debugger like
+            RenderDoc or Metal Graphics Debugger
+
+            You must call RenderSystem::endGpuDebuggerFrameCapture
+
+        @remarks
+            Very big captures (e.g. lots of API calls between start/endGpuDebuggerFrameCapture)
+            may result in the system running out of memory.
+
+        @param window
+            Can be NULL for automatic capture.
+
+            See pRENDERDOC_StartFrameCapture's documentation
+        @return
+            False if we know for certain we failed to capture (e.g. RenderDoc is not running,
+            we were build without integration support, etc)
+
+            True if we believe the frame capture started. Note a capture may still
+            fail regardless due to other more technical reasons, as rendering APIs are complex.
+        */
+        virtual bool startGpuDebuggerFrameCapture( Window *window );
+
+        /// See RenderSystem::startGpuDebuggerFrameCapture
+        /// Call this function when you're done capturing a frame.
+        virtual void endGpuDebuggerFrameCapture( Window *window );
+
+        /// Explicitly loads RenderDoc. It is not necessary to call this function
+        /// unless you want to use RenderSystem::getRenderDocApi before we
+        /// are required to load RenderDoc.
+        bool loadRenderDocApi( void );
+
+        /// Returns the RenderDoc API handle in case you want to do more advanced functionality
+        /// than what we expose.
+        ///
+        /// Note we may return nullptr if RenderDoc was not yet loaded.
+        ///
+        /// Call RenderSystem::loadRenderDocApi first if you wish the returned ptr
+        /// to not be null (it may still be null if we fail to load RenderDoc)
+        RENDERDOC_API_1_4_1 *getRenderDocApi( void ) { return mRenderDocApi; }
+
         /** Determines if the system has anisotropic mip map filter support
         */
         virtual bool hasAnisotropicMipMapFilter() const = 0;
@@ -1388,6 +1475,20 @@ namespace Ogre
 
         bool isReverseDepth(void) const                         { return mReverseDepth; }
 
+        /// +Y is downwards in NDC (Normalized Device Coordinates). Only Vulkan has this problem.
+        bool getInvertedClipSpaceY( void ) const { return mInvertedClipSpaceY; }
+
+        /** Returns true if 'a' and 'b' internally map to the same layout and should be
+            considered equivalent for a given texture
+        @param bIsDebugCheck
+            When true, we're calling this as a consistency check (e.g. asserts if
+            layouts changed externally outside the BarrierSolver).
+            Non-explicit APIs may return too many false negatives triggering the
+            assert, thus this flag prevents false crashes
+        */
+        virtual bool isSameLayout( ResourceLayout::Layout a, ResourceLayout::Layout b,
+                                   const TextureGpu *texture, bool bIsDebugCheck ) const;
+
         /// On D3D11 calls ClearState followed by Flush().
         /// On GL3+ it calls glFlush
         ///
@@ -1398,10 +1499,15 @@ namespace Ogre
         virtual void flushCommands(void) = 0;
 
         virtual const PixelFormatToShaderType* getPixelFormatToShaderType(void) const = 0;
+
+        BarrierSolver &getBarrierSolver( void ) { return mBarrierSolver; }
    
     protected:
 
         void destroyAllRenderPassDescriptors(void);
+
+        BarrierSolver mBarrierSolver;
+        ResourceTransitionArray mFinalResourceTransition;
 
         DepthBufferMap2 mDepthBufferPool2;
         DepthBufferRefMap mSharedDepthBufferRefs;
@@ -1432,7 +1538,7 @@ namespace Ogre
         bool mDebugShaders;
         bool mWBuffer;
 
-        Metrics mMetrics;
+        RenderingMetrics mMetrics;
 
         /// Saved manual colour blends
         ColourValue mManualBlendColours[OGRE_MAX_TEXTURE_LAYERS][2];
@@ -1468,6 +1574,8 @@ namespace Ogre
         */
         bool updatePassIterationRenderState(void);
 
+        RENDERDOC_API_1_4_1 *mRenderDocApi;
+
         /// List of names of events this rendersystem may raise
         StringVector mEventNames;
 
@@ -1476,7 +1584,7 @@ namespace Ogre
 
         typedef list<Listener*>::type ListenerList;
         ListenerList mEventListeners;
-        static Listener* msSharedEventListener;
+        static ListenerList msSharedEventListeners;
 
         typedef list<HardwareOcclusionQuery*>::type HardwareOcclusionQueryList;
         HardwareOcclusionQueryList mHwOcclusionQueries;
@@ -1512,6 +1620,7 @@ namespace Ogre
         Vector3 mTexProjRelativeOrigin;
 
         bool mReverseDepth;
+        bool mInvertedClipSpaceY;
 
     };
     /** @} */

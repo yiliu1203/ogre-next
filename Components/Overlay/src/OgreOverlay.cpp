@@ -119,25 +119,8 @@ namespace v1 {
         cont->_notifyParent(0, 0);
     }
     //---------------------------------------------------------------------
-    void Overlay::add3D(SceneNode* node)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        mRootNode->addChild(node);
-#endif
-    }
-    //---------------------------------------------------------------------
-    void Overlay::remove3D(SceneNode* node)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        mRootNode->removeChild(node);
-#endif
-    }
-    //---------------------------------------------------------------------
     void Overlay::clear(void)
     {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        mRootNode->removeAllChildren();
-#endif
         m2DElements.clear();
         // Note no deallocation, memory handled by OverlayManager & SceneManager
     }
@@ -261,15 +244,8 @@ namespace v1 {
         //    1. Scale
         //    2. Rotate
         //    3. Translate
-
-        Radian orientationRotation = Radian(0);
-
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-        orientationRotation = Radian(OverlayManager::getSingleton().getViewportOrientationMode() * Math::HALF_PI);
-#endif
-
         Matrix3 rot3x3, scale3x3;
-        rot3x3.FromEulerAnglesXYZ(Radian(0), Radian(0), mRotate + orientationRotation);
+        rot3x3.FromEulerAnglesXYZ(Radian(0), Radian(0), mRotate);
         scale3x3 = Matrix3::ZERO;
         scale3x3[0][0] = mScaleX;
         scale3x3[1][1] = mScaleY;

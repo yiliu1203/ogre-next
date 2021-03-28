@@ -109,7 +109,7 @@ endif ()
 
 # Set compiler specific build flags
 if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANGXX)
-  if (EMSCRIPTEN)
+  if (EMSCRIPTEN OR (ANDROID AND NOT ANDROID_ABI MATCHES "x86") )
     set(OGRE_GCC_HAS_SSE FALSE)
   else()
     check_cxx_compiler_flag(-msse OGRE_GCC_HAS_SSE)
@@ -309,12 +309,11 @@ if (OGRE_BUILD_PLATFORM_APPLE_IOS)
 elseif (ANDROID)
   set(TargetPlatform "Android")
   set(OGRE_PLATFORM OGRE_PLATFORM_ANDROID)
-  set(OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE FALSE CACHE BOOL "Disable viewport orientation Android" FORCE)
+  set(OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE TRUE CACHE BOOL "Enable viewport orientation Android" FORCE)
   option(OGRE_BUILD_ANDROID_JNI_SAMPLE "Enable JNI Sample" FALSE)
 
   if( NOT ANDROID_GLES_ONLY )
    set(OGRE_CONFIG_ENABLE_GLES2_VAO_SUPPORT FALSE CACHE BOOL "Disable VAO on Android" FORCE)
-   set(OGRE_BUILD_RENDERSYSTEM_GLES2 TRUE CACHE BOOL "Forcing OpenGL ES 2 RenderSystem for Android" FORCE)
   else()
    set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM FALSE CACHE BOOL "Disable RTSS component on Android ES1" FORCE)
    set(OGRE_BUILD_COMPONENT_VOLUME FALSE CACHE BOOL "Disable volume component on Android ES1" FORCE)
@@ -408,7 +407,19 @@ endif()
 cmake_dependent_option(OGRE_STATIC "Static build" FALSE "" TRUE)
 cmake_dependent_option(OGRE_BUILD_RENDERSYSTEM_D3D11 "Build Direct3D11 RenderSystem" TRUE "WIN32;DirectX11_FOUND OR WINDOWS_STORE OR WINDOWS_PHONE" FALSE)
 cmake_dependent_option(OGRE_BUILD_RENDERSYSTEM_GL3PLUS "Build OpenGL 3+ RenderSystem" TRUE "OPENGL_FOUND; NOT OGRE_BUILD_RENDERSYSTEM_GLES; NOT OGRE_BUILD_RENDERSYSTEM_GLES2;NOT WINDOWS_STORE;NOT WINDOWS_PHONE;NOT OGRE_BUILD_PLATFORM_APPLE_IOS" FALSE)
+cmake_dependent_option(OGRE_GLSUPPORT_USE_EGL_HEADLESS "Use EGL. Required if you want to use GL3+ headless support (e.g. rendering on the Cloud without X11). If more than one GLSUPPORT is enabled, interface can be selected at runtime" FALSE "OGRE_BUILD_RENDERSYSTEM_GL3PLUS;EGL_FOUND" FALSE)
+cmake_dependent_option(OGRE_CONFIG_UNIX_NO_X11 "Avoid X11 dependencies as much as possible. OGRE_GLSUPPORT_USE_GLX won't be available" FALSE "OGRE_GLSUPPORT_USE_EGL_HEADLESS;UNIX" FALSE)
+cmake_dependent_option(OGRE_GLSUPPORT_USE_GLX "Use GLX (Default / Native window). If more than one GLSUPPORT is enabled, interface can be selected at runtime" TRUE "OGRE_BUILD_RENDERSYSTEM_GL3PLUS;UNIX;NOT OGRE_CONFIG_UNIX_NO_X11" FALSE)
+cmake_dependent_option(OGRE_GLSUPPORT_USE_WGL "Use WGL (Default / Native window). If more than one GLSUPPORT is enabled, interface can be selected at runtime" TRUE "OGRE_BUILD_RENDERSYSTEM_GL3PLUS;WIN32" FALSE)
+cmake_dependent_option(OGRE_GLSUPPORT_USE_COCOA "Use Cocoa (Default / Native window). If more than one GLSUPPORT is enabled, interface can be selected at runtime" TRUE "OGRE_BUILD_RENDERSYSTEM_GL3PLUS;APPLE" FALSE)
+if( OGRE_GLSUPPORT_USE_GLX OR OGRE_GLSUPPORT_USE_WGL OR OGRE_GLSUPPORT_USE_COCOA )
+	math( EXPR OGRE_GLSUPPORT_NUM_INTERFACES "${OGRE_GLSUPPORT_NUM_INTERFACES} + 1" )
+endif()
+if( OGRE_GLSUPPORT_USE_EGL_HEADLESS )
+	math( EXPR OGRE_GLSUPPORT_NUM_INTERFACES "${OGRE_GLSUPPORT_NUM_INTERFACES} + 1" )
+endif()
 cmake_dependent_option(OGRE_BUILD_RENDERSYSTEM_GLES2 "Build OpenGL ES 2.x RenderSystem" FALSE "OPENGLES_FOUND;NOT WINDOWS_STORE;NOT WINDOWS_PHONE" FALSE)
+cmake_dependent_option(OGRE_BUILD_RENDERSYSTEM_VULKAN "Build Vulkan RenderSystem" TRUE "Vulkan_FOUND" FALSE)
 if( APPLE )
     option(OGRE_BUILD_PLATFORM_APPLE_IOS "Build For iOS (Apple only)" FALSE)
     option(OGRE_BUILD_RENDERSYSTEM_METAL "Build Metal RenderSystem (Apple only)" TRUE)
@@ -435,7 +446,6 @@ cmake_dependent_option(OGRE_BUILD_COMPONENT_MESHLODGENERATOR "Build MeshLodGener
 cmake_dependent_option(OGRE_BUILD_COMPONENT_TERRAIN "Build Terrain component" FALSE "" FALSE)
 cmake_dependent_option(OGRE_BUILD_COMPONENT_VOLUME "Build Volume component" FALSE "" FALSE)
 cmake_dependent_option(OGRE_BUILD_COMPONENT_PROPERTY "Build Property component" FALSE "Boost_FOUND" FALSE)
-cmake_dependent_option(OGRE_BUILD_PLUGIN_CG "Build Cg plugin" FALSE "Cg_FOUND;NOT OGRE_BUILD_PLATFORM_APPLE_IOS" FALSE)
 cmake_dependent_option(OGRE_BUILD_COMPONENT_OVERLAY "Build Overlay component" TRUE "FREETYPE_FOUND OR OGRE_BUILD_PLATFORM_WINRT OR OGRE_BUILD_PLATFORM_WINDOWS_PHONE" FALSE)
 option(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM "Build RTShader System component" FALSE)
 cmake_dependent_option(OGRE_BUILD_RTSHADERSYSTEM_CORE_SHADERS "Build RTShader System FFP core shaders" FALSE "OGRE_BUILD_COMPONENT_RTSHADERSYSTEM" FALSE)
@@ -495,11 +505,11 @@ option(OGRE_CONFIG_ENABLE_QUAD_BUFFER_STEREO "Enable stereoscopic 3D support" FA
 cmake_dependent_option(OGRE_CONFIG_AMD_AGS "Enable AMD GPU Service library for D3D vendor extensions" TRUE "OGRE_BUILD_RENDERSYSTEM_D3D11 AND AMDAGS_FOUND" FALSE)
 cmake_dependent_option(OGRE_CONFIG_ENABLE_ZIP "Build ZIP archive support. If you disable this option, you cannot use ZIP archives resource locations. The samples won't work." TRUE "ZZip_FOUND" FALSE)
 option(OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE "Include Viewport orientation mode support." FALSE)
-cmake_dependent_option(OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT "Enable Cg support to ES 2 render system" FALSE "OGRE_BUILD_RENDERSYSTEM_GLES2" FALSE)
 cmake_dependent_option(OGRE_CONFIG_ENABLE_GLES2_GLSL_OPTIMISER "Enable GLSL optimiser use in GLES 2 render system" FALSE "OGRE_BUILD_RENDERSYSTEM_GLES2" FALSE)
 cmake_dependent_option(OGRE_CONFIG_ENABLE_GLES2_VAO_SUPPORT "Use VertexArrayObjects if possible." FALSE "OGRE_BUILD_RENDERSYSTEM_GLES2" FALSE)
 cmake_dependent_option(OGRE_CONFIG_ENABLE_GL_STATE_CACHE_SUPPORT "Enable OpenGL state cache management" FALSE "OGRE_BUILD_RENDERSYSTEM_GL OR OGRE_BUILD_RENDERSYSTEM_GLES OR OGRE_BUILD_RENDERSYSTEM_GLES2 OR OGRE_BUILD_RENDERSYSTEM_GL3PLUS" FALSE)
 cmake_dependent_option(OGRE_CONFIG_ENABLE_GLES3_SUPPORT "Enable OpenGL ES 3.x Features" TRUE "OPENGLES3_FOUND;OGRE_BUILD_RENDERSYSTEM_GLES2" FALSE)
+cmake_dependent_option(OGRE_CONFIG_RENDERDOC_INTEGRATION "Programmatically schedule captures when launched from RenderDoc" TRUE "NOT ANDROID; NOT APPLE;RenderDoc_FOUND" FALSE)
 option(OGRE_CONFIG_ENABLE_FINE_LIGHT_MASK_GRANULARITY "Forward+ will support setLightMask, for a fine granularity control over which lights affect which objects. Performance impact may vary (may be slower, may be faster if you filter a lot of lights)" FALSE)
 option(OGRE_CONFIG_ENABLE_TBB_SCHEDULER "Enable TBB's scheduler initialisation/shutdown." TRUE)
 cmake_dependent_option(OGRE_USE_BOOST "Use Boost extensions" FALSE "Boost_FOUND" FALSE)
@@ -571,10 +581,10 @@ mark_as_advanced(
   OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE
   OGRE_CONFIG_ENABLE_ZIP
   OGRE_CONFIG_ENABLE_GL_STATE_CACHE_SUPPORT
-  OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT
   OGRE_CONFIG_ENABLE_GLES2_GLSL_OPTIMISER
   OGRE_CONFIG_ENABLE_GLES2_VAO_SUPPORT
   OGRE_CONFIG_ENABLE_GLES3_SUPPORT
+  OGRE_CONFIG_RENDERDOC_INTEGRATION
   OGRE_CONFIG_ENABLE_TBB_SCHEDULER
   OGRE_CONFIG_ENABLE_FINE_LIGHT_MASK_GRANULARITY
   OGRE_CONFIG_ENABLE_LIGHT_OBB_RESTRAINT
@@ -654,6 +664,10 @@ endif ()
 
 # Install CMake modules
 add_subdirectory(CMake)
+
+# provide option to install dependencies on Windows
+include(InstallDependencies)
+
 
 # Provide CPack packaging target
 include(Packaging)

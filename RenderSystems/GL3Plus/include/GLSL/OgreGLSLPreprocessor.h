@@ -211,6 +211,7 @@ namespace Ogre {
         int Line;
         /// True if we are at beginning of line
         bool BOL;
+        bool SupplimentaryExpand;
         /// A stack of 32 booleans packed into one value :)
         unsigned EnableOutput;
         /// The list of macros defined so far
@@ -442,8 +443,7 @@ namespace Ogre {
 
     public:
         /// Create an empty preprocessor object
-        CPreprocessor () : MacroList (NULL)
-        { }
+        CPreprocessor ();
 
         /// Destroy the preprocessor object
         virtual ~CPreprocessor ();

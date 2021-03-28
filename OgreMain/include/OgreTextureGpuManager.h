@@ -106,6 +106,17 @@ namespace Ogre
         };
     }
 
+    namespace ResidencyMask
+    {
+        enum ResidencyMask
+        {
+            OnStorage = 1 << GpuResidency::OnStorage,
+            OnSystemRam = 1 << GpuResidency::OnSystemRam,
+            Resident = 1 << GpuResidency::Resident,
+            All = OnStorage | OnSystemRam | Resident
+        };
+    }
+
     /**
     @class TextureGpuManager
         This class manages all textures (i.e. TextureGpu) since Ogre 2.2
@@ -440,7 +451,7 @@ namespace Ogre
 
             /// Only used for textures that need more than one Image to load
             ///
-            /// Used by worker thread. No protection needed.
+            /// Used by worker thread. No protection needed (except in abortAllRequests).
             ///
             /// @see    TextureGpuManager::PartialImage
             PartialImageMap     partialImages;
@@ -495,6 +506,7 @@ namespace Ogre
         uint32              mTryLockMutexFailureCount;
         uint32              mTryLockMutexFailureLimit;
         bool                mAddedNewLoadRequests;
+        bool                mAddedNewLoadRequestsSinceWaitingForStreamingCompletion;
         ThreadData          mThreadData[2];
         StreamingData       mStreamingData;
 
@@ -556,6 +568,7 @@ namespace Ogre
         uint8 mErrorFallbackTexData[2u*2u*6u*4u];
 
         void destroyAll(void);
+        void abortAllRequests(void);
         void destroyAllStagingBuffers(void);
         void destroyAllTextures(void);
         void destroyAllPools(void);
@@ -641,6 +654,8 @@ namespace Ogre
         TextureGpuManager( VaoManager *vaoManager, RenderSystem *renderSystem );
         virtual ~TextureGpuManager();
 
+        void shutdown();
+
         /** Whether to use HW or SW mipmap generation when specifying
             TextureFilter::TypeGenerateDefaultMipmaps for loading files from textures.
             This setting has no effect for filters explicitly asking for HW mipmap generation.
@@ -689,8 +704,14 @@ namespace Ogre
         */
         bool _update( bool syncWithWorkerThread );
 
-        /// Blocks main thread until are pending textures are fully loaded.
+        /// Blocks main thread until all pending textures are fully loaded.
         void waitForStreamingCompletion(void);
+
+        /// It is not enough to call waitForStreamingCompletion to render
+        /// single frame with all textures loaded, as new loading requests
+        /// could be added during frame rendering. In this case waiting 
+        /// and rendering could be repeated to avoid the problem.
+        bool hasNewLoadRequests() const { return mAddedNewLoadRequestsSinceWaitingForStreamingCompletion; }
 
         /// Do not use directly. See TextureGpu::waitForMetadata & TextureGpu::waitForDataReady
         void _waitFor( TextureGpu *texture, bool metadataOnly );
@@ -874,6 +895,25 @@ namespace Ogre
                           bool saveOitd, bool saveOriginal,
                           HlmsTextureExportListener *listener );
 
+        /** Checks if the given format with the texture flags combination is supported
+
+        @param format
+        @param textureFlags
+            See TextureFlags::TextureFlags
+            Supported flags are:
+                NotTexture
+                RenderToTexture
+                Uav
+                AllowAutomipmaps
+
+            When NotTexture is set, we don't check whether it's possible to sample from
+            this texture. Note that some buggy Android drivers may report that it's not
+            possible to sample from that texture when it actually is.
+        @return
+            True if supported. False otherwise
+        */
+        virtual bool checkSupport( PixelFormatGpu format, uint32 textureFlags ) const;
+
     protected:
         /// Returns false if the entry was not found in the cache
         bool applyMetadataCacheTo( TextureGpu *texture );
@@ -889,7 +929,7 @@ namespace Ogre
                              size_t &outAvailableStagingTextureBytes );
 
         void dumpStats(void) const;
-        void dumpMemoryUsage( Log* log ) const;
+        void dumpMemoryUsage( Log *log, Ogre::uint32 mask = ResidencyMask::All ) const;
 
         /// Sets a new listener. The old one will be destroyed with OGRE_DELETE
         /// See TextureGpuManagerListener. Pointer cannot be null.

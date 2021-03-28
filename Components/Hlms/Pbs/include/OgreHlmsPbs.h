@@ -138,10 +138,11 @@ namespace Ogre
         uint32                  mCurrentPassBuffer;     /// Resets to zero every new frame.
 
         TexBufferPacked         *mGridBuffer;
-        TexBufferPacked         *mGlobalLightListBuffer;
+        ReadOnlyBufferPacked    *mGlobalLightListBuffer;
 
 
         float                   mMaxSpecIblMipmap;
+        uint16                  mTexBufUnitSlotEnd;
         uint32                  mTexUnitSlotStart;
 
         TextureGpuVec const     *mPrePassTextures;
@@ -187,7 +188,8 @@ namespace Ogre
         bool mHasSeparateSamplers;
         DescriptorSetTexture const *mLastDescTexture;
         DescriptorSetSampler const *mLastDescSampler;
-        uint8 mReservedTexSlots;
+        uint8 mReservedTexBufferSlots;  // Includes ReadOnly
+        uint8 mReservedTexSlots;        // These get added to mReservedTexBufferSlots
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
         bool mFineLightMaskGranularity;
 #endif
@@ -209,6 +211,8 @@ namespace Ogre
         uint16          mEsmK; /// K parameter for ESM.
         AmbientLightMode mAmbientLightMode;
 
+        virtual void setupRootLayout( RootLayout &rootLayout );
+
         virtual const HlmsCache* createShaderCacheEntry( uint32 renderableHash,
                                                          const HlmsCache &passCache,
                                                          uint32 finalHash,
@@ -219,7 +223,8 @@ namespace Ogre
                                                     const HlmsBlendblock *blendblock,
                                                     const HlmsParamVec &paramVec );
 
-        void setDetailMapProperties( HlmsPbsDatablock *datablock, PiecesMap *inOutPieces );
+        void setDetailMapProperties( HlmsPbsDatablock *datablock, PiecesMap *inOutPieces,
+                                     const bool bCasterPass );
         void setTextureProperty( const char *propertyName, HlmsPbsDatablock *datablock,
                                  PbsTextureTypes texType );
         void setDetailTextureProperty( const char *propertyName, HlmsPbsDatablock *datablock,
@@ -245,6 +250,10 @@ namespace Ogre
         virtual ~HlmsPbs();
 
         virtual void _changeRenderSystem( RenderSystem *newRs );
+
+        virtual void analyzeBarriers( BarrierSolver &barrierSolver,
+                                      ResourceTransitionArray &resourceTransitions,
+                                      Camera *renderingCamera, const bool bCasterPass );
 
         virtual HlmsCache preparePassHash( const Ogre::CompositorShadowNode *shadowNode,
                                            bool casterPass, bool dualParaboloid,
@@ -458,6 +467,8 @@ namespace Ogre
         static const IdString PerceptualRoughness;
         static const IdString HasPlanarReflections;
 
+        static const IdString Set0TextureSlotEnd;
+        static const IdString Set1TextureSlotEnd;
         static const IdString NumTextures;
         static const IdString NumSamplers;
         static const IdString DiffuseMapGrayscale;
@@ -491,6 +502,7 @@ namespace Ogre
         static const IdString NormalLa;
         static const IdString NormalRgUnorm;
         static const IdString NormalRgSnorm;
+        static const IdString NormalBc3Unorm;
 
         static const IdString NormalWeight;
         static const IdString NormalWeightTex;

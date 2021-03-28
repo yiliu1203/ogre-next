@@ -40,10 +40,10 @@ elseif(OGRE_BUILD_PLATFORM_ANDROID)
   set(OGRE_DEP_SEARCH_PATH 
     ${OGRE_DEPENDENCIES_DIR}
     ${ENV_OGRE_DEPENDENCIES_DIR}
-    "${OGRE_BINARY_DIR}/AndroidDependencies"
-    "${OGRE_SOURCE_DIR}/AndroidDependencies"
-    "${OGRE_BINARY_DIR}/../AndroidDependencies"
-    "${OGRE_SOURCE_DIR}/../AndroidDependencies"
+    "${OGRE_BINARY_DIR}/DependenciesAndroid"
+    "${OGRE_SOURCE_DIR}/DependenciesAndroid"
+    "${OGRE_BINARY_DIR}/../DependenciesAndroid"
+    "${OGRE_SOURCE_DIR}/../DependenciesAndroid"
   )
 else()
   set(OGRE_DEP_SEARCH_PATH 
@@ -91,6 +91,9 @@ macro_log_feature(FreeImage_FOUND "freeimage" "Support for commonly used graphic
 find_package(Freetype)
 macro_log_feature(FREETYPE_FOUND "freetype" "Portable font engine" "http://www.freetype.org" FALSE "" "")
 
+find_package(Vulkan)
+macro_log_feature(Vulkan_FOUND "vulkan-sdk" "Vulkan SDK" "https://vulkan.lunarg.com/" FALSE "" "")
+
 # Find X11
 if (UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   find_package(X11)
@@ -103,7 +106,10 @@ endif ()
 
 # Find rapidjson
 find_package(Rapidjson)
-macro_log_feature(Rapidjson_FOUND "rapidjson" "C++ JSON parser" "http://rapidjson.org/" FALSE "" "")
+macro_log_feature(Rapidjson_FOUND "rapidjson" "C++ JSON parser" "https://rapidjson.org/" FALSE "" "")
+
+find_package(RenderDoc)
+macro_log_feature(RenderDoc_FOUND "RenderDoc" "RenderDoc Integration" "https://renderdoc.org/" FALSE "" "")
 
 
 #######################################################################
@@ -175,12 +181,6 @@ if( Remotery_LIBRARIES )
         set( Remotery_LIBRARIES ${Remotery_LIBRARIES} "-framework Metal" )
     endif()
 endif()
-
-# Find Cg
-if (NOT (OGRE_BUILD_PLATFORM_APPLE_IOS OR WINDOWS_STORE OR WINDOWS_PHONE OR ANDROID OR EMSCRIPTEN))
-  find_package(Cg)
-  macro_log_feature(Cg_FOUND "cg" "C for graphics shader language" "http://developer.nvidia.com/object/cg_toolkit.html" FALSE "" "")
-endif ()
 
 # Find Boost
 # Prefer static linking in all cases
@@ -269,18 +269,6 @@ endif()
 # Samples dependencies
 #######################################################################
 
-# Find OIS
-if (WINDOWS_STORE OR WINDOWS_PHONE)
-	# for WinRT we need only includes
-	set(OIS_FIND_QUIETLY TRUE)
-        find_package(OIS)
-	set(OIS_INCLUDE_DIRS ${OIS_INCLUDE_DIR})
-	macro_log_feature(OIS_INCLUDE_DIRS "OIS" "Input library needed for the samples" "http://sourceforge.net/projects/wgois" FALSE "" "")
-else ()
-	find_package(OIS)
-	macro_log_feature(OIS_FOUND "OIS" "Input library needed for the samples" "http://sourceforge.net/projects/wgois" FALSE "" "")
-endif ()
-
 # Find sdl2
 find_package(SDL2)
 macro_log_feature(SDL2_FOUND "SDL2" "Simple DirectMedia Library" "https://www.libsdl.org/" FALSE "" "")
@@ -332,8 +320,6 @@ include_directories(
   ${OPENGLES_INCLUDE_DIRS}
   ${OPENGLES2_INCLUDE_DIRS}
   ${OPENGLES3_INCLUDE_DIRS}
-  ${OIS_INCLUDE_DIRS}
-  ${Cg_INCLUDE_DIRS}
   ${X11_INCLUDE_DIR}
   ${DirectX_INCLUDE_DIRS}
   ${CppUnit_INCLUDE_DIRS}
@@ -346,7 +332,6 @@ link_directories(
   ${OPENGLES_LIBRARY_DIRS}
   ${OPENGLES2_LIBRARY_DIRS}
   ${OPENGLES3_LIBRARY_DIRS}
-  ${Cg_LIBRARY_DIRS}
   ${X11_LIBRARY_DIRS}
   ${DirectX_LIBRARY_DIRS}
   ${CppUnit_LIBRARY_DIRS}
@@ -356,6 +341,3 @@ if (Boost_FOUND)
   include_directories(${Boost_INCLUDE_DIRS})
   link_directories(${Boost_LIBRARY_DIRS})
 endif ()
-
-# provide option to install dependencies on Windows
-include(InstallDependencies)

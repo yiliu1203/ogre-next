@@ -233,7 +233,7 @@ namespace Ogre
                     if( param.mp.elementType == ShaderParams::ElementFloat &&
                         paramArray[j].IsNumber() )
                     {
-                       dataFloat[j] = paramArray[j].GetDouble();
+                       dataFloat[j] = static_cast<float>( paramArray[j].GetDouble() );
                     }
                     else if( param.mp.elementType == ShaderParams::ElementInt &&
                              paramArray[j].IsInt() )
@@ -490,6 +490,11 @@ namespace Ogre
                     loadTexture( jsonArray[i], blocks, job, i, resourceGroup );
             }
         }
+
+        // tex_slot_start must be set *after* textures so we can assume 0-based indexing
+        itor = json.FindMember( "gl_tex_slot_start" );
+        if( itor != json.MemberEnd() && itor->value.IsUint() )
+            job->setGlTexSlotStart( static_cast<uint8>( itor->value.GetUint() ) );
 
         itor = json.FindMember( "uav_units" );
         if( itor != json.MemberEnd() && itor->value.IsUint() )

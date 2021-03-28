@@ -108,6 +108,7 @@ mBuildLegacyLightList( false ),
 mDecalsDiffuseTex( 0 ),
 mDecalsNormalsTex( 0 ),
 mDecalsEmissiveTex( 0 ),
+mEnvFeatures(0u),
 mCamerasInProgress(0),
 mCurrentViewport0(0),
 mCurrentPass(0),
@@ -669,6 +670,11 @@ SkeletonInstance* SceneManager::createSkeletonInstance( const SkeletonDef *skele
 void SceneManager::destroySkeletonInstance( SkeletonInstance *skeletonInstance )
 {
     mSkeletonAnimationManager.destroySkeletonInstance( skeletonInstance );
+}
+//-----------------------------------------------------------------------
+void SceneManager::_removeSkeletonDef( const SkeletonDef *skeletonDef )
+{
+    mSkeletonAnimationManager.removeSkeletonDef( skeletonDef );
 }
 //-----------------------------------------------------------------------
 void SceneManager::destroyAllBillboardSets(void)
@@ -1468,11 +1474,8 @@ void SceneManager::_renderPhase02(Camera* camera, const Camera *lodCamera,
     //Restore vertex winding
     mDestRenderSystem->setInvertVertexWinding(false);
 
-    // Notify camera of vis faces
-    camera->_notifyRenderedFaces( mDestRenderSystem->getMetrics().mFaceCount );
-
-    // Notify camera of vis batches
-    camera->_notifyRenderedBatches( mDestRenderSystem->getMetrics().mBatchCount );
+    // Notify camera of vis faces, batches, etc.
+    camera->_notifyRenderingMetrics( mDestRenderSystem->getMetrics() );
 
     Root::getSingleton()._popCurrentSceneManager(this);
 }
@@ -1540,6 +1543,9 @@ void SceneManager::_releaseManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_releaseManualHardwareResources();
     }
+
+    if(mForwardPlusSystem)
+        mForwardPlusSystem->_releaseManualHardwareResources();
 }
 //-----------------------------------------------------------------------
 void SceneManager::_restoreManualHardwareResources()
@@ -1554,6 +1560,7 @@ void SceneManager::_restoreManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_restoreManualHardwareResources();
     }
+    mStaticEntitiesDirty = true; // mObjectData.mWorldAabb could be corrupted as part of reinitialization
 }
 //-----------------------------------------------------------------------
 void SceneManager::prepareWorldGeometry(const String& filename)

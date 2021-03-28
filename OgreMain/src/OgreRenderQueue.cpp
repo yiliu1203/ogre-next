@@ -221,7 +221,7 @@ namespace Ogre
 
         assert( !mRenderQueues[rqId].mSorted &&
                 "Called addRenderable after render and before clear" );
-        assert( subId < OGRE_RQ_MAKE_MASK( RqBits::SubRqIdBits ) );
+        assert( subId <= OGRE_RQ_MAKE_MASK( RqBits::SubRqIdBits ) );
 
         uint32 hlmsHash = casterPass ? pRend->getHlmsCasterHash() : pRend->getHlmsHash();
         const HlmsDatablock *datablock = pRend->getDatablock();
@@ -569,7 +569,7 @@ namespace Ogre
         CbDrawCall *drawCmd = 0;
         CbSharedDraw *drawCountPtr = 0;
 
-        RenderSystem::Metrics stats;
+        RenderingMetrics stats;
 
         const QueuedRenderableArray &queuedRenderables = renderQueueGroup.mQueuedRenderables;
 
@@ -687,9 +687,16 @@ namespace Ogre
                 stats.mInstanceCount += instancesPerDraw;
             }
 
-            const Ogre::OperationType type = vao->getOperationType();
-            if( type == OT_TRIANGLE_STRIP || type == OT_TRIANGLE_LIST )
+            switch( vao->getOperationType() )
+            {
+            case OT_TRIANGLE_LIST:
                 stats.mFaceCount += ( vao->mPrimCount / 3u ) * instancesPerDraw;
+                break;
+            case OT_TRIANGLE_STRIP:
+            case OT_TRIANGLE_FAN:
+                stats.mFaceCount += ( vao->mPrimCount - 2u ) * instancesPerDraw;
+                break;
+            }
 
             stats.mVertexCount += vao->mPrimCount * instancesPerDraw;
 
@@ -723,7 +730,7 @@ namespace Ogre
 
         v1::CbDrawCall *drawCmd = 0;
 
-        RenderSystem::Metrics stats;
+        RenderingMetrics stats;
 
         const QueuedRenderableArray &queuedRenderables = renderQueueGroup.mQueuedRenderables;
 
@@ -825,10 +832,17 @@ namespace Ogre
                 stats.mInstanceCount += instancesPerDraw;
             }
 
-            if( renderOp.operationType == OT_TRIANGLE_STRIP ||
-                renderOp.operationType == OT_TRIANGLE_LIST )
+            size_t primCount =
+                renderOp.useIndexes ? renderOp.indexData->indexCount : renderOp.vertexData->vertexCount;
+            switch( renderOp.operationType )
             {
-                stats.mFaceCount += ( renderOp.vertexData->vertexCount / 3u ) * instancesPerDraw;
+            case OT_TRIANGLE_LIST:
+                stats.mFaceCount += ( primCount / 3u ) * instancesPerDraw;
+                break;
+            case OT_TRIANGLE_STRIP:
+            case OT_TRIANGLE_FAN:
+                stats.mFaceCount += ( primCount - 2u ) * instancesPerDraw;
+                break;
             }
 
             stats.mVertexCount += renderOp.vertexData->vertexCount * instancesPerDraw;

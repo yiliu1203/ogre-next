@@ -151,9 +151,9 @@ namespace Ogre {
         float getPoseWeight(size_t index) const;
         void setPoseWeight(size_t index, float w);
         void addPoseWeight(size_t index, float w);
-        
-        TexBufferPacked* getPoseTexBuffer() const;
-        
+
+        TexBufferPacked *getPoseTexBuffer( void ) const;
+
         /** Returns whether the world matrix is an identity matrix.
         @remarks
             It is up to the Hlms implementation whether to honour this request. Take in mind
@@ -431,7 +431,15 @@ namespace Ogre {
         void setRenderQueueSubGroup( uint8 subGroup )   { mRenderQueueSubGroup = subGroup; }
         uint8 getRenderQueueSubGroup(void) const        { return mRenderQueueSubGroup; }
 
+        /** Sets the default render queue sub group for all future Renderable instances.
+        */
+        static void setDefaultRenderQueueSubGroup( uint8 subGroup ) { msDefaultRenderQueueSubGroup = subGroup; }
+        static uint8 getDefaultRenderQueueSubGroup() { return msDefaultRenderQueueSubGroup; }
+
     protected:
+        /// Default query flags
+        static uint8 msDefaultRenderQueueSubGroup;
+
         CustomParameterMap mCustomParameters;
         /// VAO to render the submesh. One per LOD level. Each LOD may or
         /// may not share the vertex and index buffers the other levels
@@ -466,12 +474,12 @@ namespace Ogre {
         
         struct PoseData
         {
-            unsigned short   numPoses;
-            float            weights[OGRE_MAX_POSES];
-            TexBufferPacked* buffer;
-            bool             halfPrecision;
-            bool             hasNormals;
-            
+            unsigned short numPoses;
+            float weights[OGRE_MAX_POSES];
+            TexBufferPacked *buffer;
+            bool halfPrecision;
+            bool hasNormals;
+
             PoseData();
         };
         SharedPtr<PoseData> mPoseData;

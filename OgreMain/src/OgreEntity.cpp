@@ -79,8 +79,7 @@ namespace v1 {
           mAlwaysUpdateMainSkeleton(false),
           mSkeletonInstance(0),
           mInitialised(false),
-          mLastParentXform(Matrix4::ZERO),
-          mMeshStateCount(0)
+          mLastParentXform(Matrix4::ZERO)
     {
         mObjectData.mQueryFlags[mObjectData.mIndex] = SceneManager::QUERY_ENTITY_DEFAULT_MASK;
     }
@@ -109,21 +108,18 @@ namespace v1 {
         mAlwaysUpdateMainSkeleton(false),
         mSkeletonInstance(0),
         mInitialised(false),
-        mLastParentXform(Matrix4::ZERO),
-        mMeshStateCount(0)
+        mLastParentXform(Matrix4::ZERO)
     {
         _initialise();
         mObjectData.mQueryFlags[mObjectData.mIndex] = SceneManager::QUERY_ENTITY_DEFAULT_MASK;
     }
     //-----------------------------------------------------------------------
-    void Entity::_releaseManualHardwareResources()
+    void Entity::loadingComplete(Resource* res)
     {
-        // do not call _deinitialise() here to preserve material names
-    }
-    //-----------------------------------------------------------------------
-    void Entity::_restoreManualHardwareResources()
-    {
-        _initialise(true);
+        if(res == mMesh.get() && mInitialised)
+        {
+            _initialise(true);
+        }
     }
     //-----------------------------------------------------------------------
     void Entity::_initialise(bool forceReinitialise)
@@ -143,12 +139,8 @@ namespace v1 {
         if (mInitialised)
             return;
 
-        if (mMesh->isBackgroundLoaded() && !mMesh->isLoaded())
-        {
-            // register for a callback when mesh is finished loading
-            // do this before asking for load to happen to avoid race
-            mMesh->addListener(this);
-        }
+        // register for a callback when mesh is finished loading
+        mMesh->addListener(this);
         
         // On-demand load
         mMesh->load();
@@ -217,27 +209,6 @@ namespace v1 {
 
         reevaluateVertexProcessing();
 
-        HlmsManager *hlmsManager = Root::getSingleton().getHlmsManager();
-        size_t numSubMeshes = mMesh->getNumSubMeshes();
-        for( size_t i=0; i<numSubMeshes; ++i )
-        {
-            SubMesh *subMesh = mMesh->getSubMesh(i);
-            if( subMesh->isMatInitialised() )
-            {
-                //Give preference to HLMS materials of the same name
-                HlmsDatablock *datablock = hlmsManager->getDatablockNoDefault(
-                                                    subMesh->getMaterialName() );
-                if( datablock )
-                {
-                    mSubEntityList[i].setDatablock( datablock );
-                }
-                else
-                {
-                    mSubEntityList[i].setMaterialName( subMesh->getMaterialName(), mMesh->getGroup() );
-                }
-            }
-        }
-
         Aabb aabb;
         if( mMesh->getBounds().isInfinite() )
             aabb = Aabb::BOX_INFINITE;
@@ -249,9 +220,13 @@ namespace v1 {
         mObjectData.mWorldAabb->setFromAabb( aabb, mObjectData.mIndex );
         mObjectData.mLocalRadius[mObjectData.mIndex] = aabb.getRadius();
         mObjectData.mWorldRadius[mObjectData.mIndex] = aabb.getRadius();
+        if( mParentNode )
+        {
+            updateSingleWorldAabb();
+            updateSingleWorldRadius();
+        }
 
         mInitialised = true;
-        mMeshStateCount = mMesh->getStateCount();
     }
     //-----------------------------------------------------------------------
     void Entity::_deinitialise(void)
@@ -273,12 +248,6 @@ namespace v1 {
             *li = 0;
         }
         mLodEntityList.clear();
-        
-        // Detach all child objects, do this manually to avoid needUpdate() call
-        // which can fail because of deleted items
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        detachAllObjectsImpl();
-#endif
 
         if (mSkeletonInstance) {
             OGRE_FREE_SIMD(mBoneWorldMatrices, MEMCATEGORY_ANIMATION);
@@ -487,113 +456,13 @@ namespace v1 {
         }
     }
     //-----------------------------------------------------------------------
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-    void Entity::_notifyCurrentCamera(Camera* cam)
-    {
-        //TODO (dark_sylinc): This whole state tracking thing feels wrong.
-        // Calculate the LOD
-        if (mParentNode)
-        {
-            // Get mesh lod strategy
-            const LodStrategy *meshStrategy = mMesh->getLodStrategy();
-            // Get the appropriate LOD value
-            Real lodValue = meshStrategy->getValue(this, cam);
-            // Bias the LOD value
-            Real biasedMeshLodValue = lodValue * mMeshLodFactorTransformed;
-
-
-            // Get the index at this biased depth
-            ushort newMeshLodIndex = mMesh->getLodIndex(biasedMeshLodValue);
-            // Apply maximum detail restriction (remember lower = higher detail)
-            newMeshLodIndex = std::max<ushort>(mMaxMeshLodIndex, newMeshLodIndex);
-            // Apply minimum detail restriction (remember higher = lower detail)
-            newMeshLodIndex = std::min<ushort>(mMinMeshLodIndex, newMeshLodIndex);
-
-            // Construct event object
-            EntityMeshLodChangedEvent evt;
-            evt.entity = this;
-            evt.camera = cam;
-            evt.lodValue = biasedMeshLodValue;
-            evt.previousLodIndex = mCurrentMeshLod;
-            evt.newLodIndex = newMeshLodIndex;
-
-            // Notify LOD event listeners
-            cam->getSceneManager()->_notifyEntityMeshLodChanged(evt);
-
-            // Change LOD index
-            //mMeshLodIndex = evt.newLodIndex;
-
-            // Now do material LOD
-            lodValue *= mMaterialLodFactorTransformed;
-
-
-            SubEntityList::iterator i, iend;
-            iend = mSubEntityList.end();
-            for (i = mSubEntityList.begin(); i != iend; ++i)
-            {
-                // Get sub-entity material
-                const MaterialPtr& material = i->getMaterial();
-                
-                // Get material LOD strategy
-                const LodStrategy *materialStrategy = material->getLodStrategy();
-                
-                // Recalculate LOD value if strategies do not match
-                Real biasedMaterialLodValue;
-                if (meshStrategy == materialStrategy)
-                    biasedMaterialLodValue = lodValue;
-                else
-                    biasedMaterialLodValue = materialStrategy->getValue(this, cam) * materialStrategy->transformBias(mMaterialLodFactor);
-
-                // Get the index at this biased depth
-                unsigned short idx = material->getLodIndex(biasedMaterialLodValue);
-                // Apply maximum detail restriction (remember lower = higher detail)
-                idx = std::max(mMaxMaterialLodIndex, idx);
-                // Apply minimum detail restriction (remember higher = lower detail)
-                idx = std::min(mMinMaterialLodIndex, idx);
-
-                // Construct event object
-                EntityMaterialLodChangedEvent subEntEvt;
-                subEntEvt.subEntity = &(*i);
-                subEntEvt.camera = cam;
-                subEntEvt.lodValue = biasedMaterialLodValue;
-                subEntEvt.previousLodIndex = i->mMaterialLodIndex;
-                subEntEvt.newLodIndex = idx;
-
-                // Notify LOD event listeners
-                cam->getSceneManager()->_notifyEntityMaterialLodChanged(subEntEvt);
-
-                // Change LOD index
-                i->mMaterialLodIndex = subEntEvt.newLodIndex;
-                // Also invalidate any camera distance cache
-                (*i)->_invalidateCameraCache ();
-            }
-
-
-        }
-        // Notify any child objects
-        ChildObjectList::iterator child_itr = mChildObjectList.begin();
-        ChildObjectList::iterator child_itr_end = mChildObjectList.end();
-        for( ; child_itr != child_itr_end; ++child_itr)
-        {
-            (*child_itr).second->_notifyCurrentCamera(cam);
-        }
-    }
-#endif
-    //-----------------------------------------------------------------------
     void Entity::_updateRenderQueue(RenderQueue* queue, Camera *camera, const Camera *lodCamera)
     {
-        /*// Do nothing if not initialised yet
+        // Do nothing if not initialised yet
         if (!mInitialised)
             return;
 
-        // Check mesh state count, will be incremented if reloaded
-        if (mMesh->getStateCount() != mMeshStateCount)
-        {
-            // force reinitialise
-            _initialise(true);
-        }
-
-        {
+        /*{
             FastArray<unsigned char>::const_iterator itCurrentMatLod = mCurrentMaterialLod.begin();
             SubEntityList::iterator itor = mSubEntityList.begin();
             SubEntityList::iterator end  = mSubEntityList.end();
@@ -1372,8 +1241,10 @@ namespace v1 {
         {
             subMesh = mesh->getSubMesh(i);
             sublist->push_back( SubEntity( this, subMesh ) );
-            if (materialList)
-                sublist->back().setDatablockOrMaterialName((*materialList)[i], mesh->getGroup());
+
+            //Try first Hlms materials, then the low level ones.
+            sublist->back().setDatablockOrMaterialName(
+                materialList ? ( *materialList )[i] : subMesh->getMaterialName(), mesh->getGroup() );
         }
     }
     //-----------------------------------------------------------------------
@@ -1387,133 +1258,6 @@ namespace v1 {
             i->setPolygonModeOverrideable(overrideable);
         }
     }
-
-    //-----------------------------------------------------------------------
-    TagPoint* Entity::attachObjectToBone(const String &boneName, MovableObject *pMovable, const Quaternion &offsetOrientation, const Vector3 &offsetPosition)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        if (mChildObjectList.find(pMovable->getName()) != mChildObjectList.end())
-        {
-            OGRE_EXCEPT(Exception::ERR_DUPLICATE_ITEM,
-                "An object with the name " + pMovable->getName() + " already attached",
-                "Entity::attachObjectToBone");
-        }
-        if(pMovable->isAttached())
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Object already attached to a sceneNode or a OldBone",
-                "Entity::attachObjectToBone");
-        }
-        if (!hasSkeleton())
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "This entity's mesh has no skeleton to attach object to.",
-                "Entity::attachObjectToBone");
-        }
-        OldBone* bone = mSkeletonInstance->getBone(boneName);
-        if (!bone)
-        {
-            OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Cannot locate bone named " + boneName,
-                "Entity::attachObjectToBone");
-        }
-
-        TagPoint *tp = mSkeletonInstance->createTagPointOnBone(
-            bone, offsetOrientation, offsetPosition);
-        tp->setParentEntity(this);
-        tp->setChildObject(pMovable);
-
-        attachObjectImpl(pMovable, tp);
-
-        return tp;
-#endif
-        return 0;
-    }
-
-    //-----------------------------------------------------------------------
-    void Entity::attachObjectImpl(MovableObject *pObject, TagPoint *pAttachingPoint)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        assert(mChildObjectList.find(pObject->getName()) == mChildObjectList.end());
-        mChildObjectList[pObject->getName()] = pObject;
-        pObject->_notifyAttached(pAttachingPoint, true);
-#endif
-    }
-
-    //-----------------------------------------------------------------------
-    MovableObject* Entity::detachObjectFromBone(const String &name)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        ChildObjectList::iterator i = mChildObjectList.find(name);
-
-        if (i == mChildObjectList.end())
-        {
-            OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "No child object entry found named " + name,
-                "Entity::detachObjectFromBone");
-        }
-        MovableObject *obj = i->second;
-        detachObjectImpl(obj);
-        mChildObjectList.erase(i);
-
-        return obj;
-#endif
-        return 0;
-    }
-    //-----------------------------------------------------------------------
-    void Entity::detachObjectFromBone(MovableObject* obj)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        ChildObjectList::iterator i, iend;
-        iend = mChildObjectList.end();
-        for (i = mChildObjectList.begin(); i != iend; ++i)
-        {
-            if (i->second == obj)
-            {
-                detachObjectImpl(obj);
-                mChildObjectList.erase(i);
-                break;
-            }
-        }
-#endif
-    }
-    //-----------------------------------------------------------------------
-    void Entity::detachAllObjectsFromBone(void)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        detachAllObjectsImpl();
-#endif
-    }
-    //-----------------------------------------------------------------------
-    void Entity::detachObjectImpl(MovableObject* pObject)
-    {
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-        TagPoint* tp = static_cast<TagPoint*>(pObject->getParentNode());
-
-        // free the TagPoint so we can reuse it later
-        mSkeletonInstance->freeTagPoint(tp);
-
-        pObject->_notifyAttached((TagPoint*)0);
-#endif
-    }
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-    //-----------------------------------------------------------------------
-    void Entity::detachAllObjectsImpl(void)
-    {
-
-        ChildObjectList::const_iterator i, iend;
-        iend = mChildObjectList.end();
-        for (i = mChildObjectList.begin(); i != iend; ++i)
-        {
-            detachObjectImpl(i->second);
-        }
-        mChildObjectList.clear()
-    }
-#endif
-
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-    //-----------------------------------------------------------------------
-    Entity::ChildObjectListIterator Entity::getAttachedObjectIterator()
-    {
-        return ChildObjectListIterator(mChildObjectList.begin(), mChildObjectList.end());
-    }
-#endif
     //-----------------------------------------------------------------------
     void Entity::prepareTempBlendBuffers(void)
     {

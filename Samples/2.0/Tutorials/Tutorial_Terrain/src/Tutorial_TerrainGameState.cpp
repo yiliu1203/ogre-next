@@ -43,78 +43,6 @@ namespace Demo
     {
     }
     //-----------------------------------------------------------------------------------
-    Ogre::CompositorWorkspace* Tutorial_TerrainGameState::setupCompositor()
-    {
-        // The first time this function gets called Terra is not initialized. This is a very possible
-        // scenario i.e. load a level without Terrain, but we still need a workspace to render.
-        //
-        // Thus we pass a PF_NULL texture to the workspace as a dud that barely consumes any
-        // memory (it consumes no GPU memory btw) by specifying PF_NULL. Alternatively you
-        // could use a different workspace (either defined in script or programmatically) that
-        // doesn't require specifying a second external texture. But using a dud is just simpler.
-        //
-        // The second time we get called, Terra will be initialized and we can pass the
-        // proper external texture filled with the UAV so Ogre can place the right
-        // barriers.
-        //
-        // Note: We *could* delay the creation of the workspace in this sample until Terra
-        // is initialized; instead of creating the workspace unnecessarily twice.
-        // However we're doing this on purpose to show how to deal with perfectly valid &
-        // very common scenarios.
-        using namespace Ogre;
-
-        Root *root = mGraphicsSystem->getRoot();
-        SceneManager *sceneManager = mGraphicsSystem->getSceneManager();
-        Window *renderWindow = mGraphicsSystem->getRenderWindow();
-        Camera *camera = mGraphicsSystem->getCamera();
-        CompositorManager2 *compositorManager = root->getCompositorManager2();
-
-        CompositorWorkspace *oldWorkspace = mGraphicsSystem->getCompositorWorkspace();
-        if( oldWorkspace )
-        {
-            TextureGpu *terraShadowTex = oldWorkspace->getExternalRenderTargets()[1];
-            compositorManager->removeWorkspace( oldWorkspace );
-            if( terraShadowTex->getPixelFormat() == PFG_NULL )
-            {
-                TextureGpuManager *textureManager = root->getRenderSystem()->getTextureGpuManager();
-                textureManager->destroyTexture( terraShadowTex );
-            }
-        }
-
-        CompositorChannelVec externalChannels( 2 );
-        //Render window
-        externalChannels[0] = renderWindow->getTexture();
-
-        //Terra's Shadow texture
-        ResourceLayoutMap initialLayouts;
-        ResourceAccessMap initialUavAccess;
-        if( mTerra )
-        {
-            //Terra is initialized
-            const ShadowMapper *shadowMapper = mTerra->getShadowMapper();
-            shadowMapper->fillUavDataForCompositorChannel( &externalChannels[1], initialLayouts,
-                                                           initialUavAccess );
-        }
-        else
-        {
-            //The texture is not available. Create a dummy dud.
-            TextureGpuManager *textureManager = root->getRenderSystem()->getTextureGpuManager();
-            TextureGpu *nullTex = textureManager->createOrRetrieveTexture( "DummyNull",
-                                                                           GpuPageOutStrategy::Discard,
-                                                                           TextureFlags::ManualTexture,
-                                                                           TextureTypes::Type2D );
-            nullTex->setResolution( 1u, 1u );
-            nullTex->setPixelFormat( PFG_R10G10B10A2_UNORM );
-            nullTex->scheduleTransitionTo( GpuResidency::Resident );
-            externalChannels[1] = nullTex;
-        }
-
-        return compositorManager->addWorkspace( sceneManager, externalChannels, camera,
-                                                "Tutorial_TerrainWorkspace", true, -1,
-                                                (UavBufferPackedVec*)0, &initialLayouts,
-                                                &initialUavAccess );
-    }
-    //-----------------------------------------------------------------------------------
     void Tutorial_TerrainGameState::createScene01(void)
     {
         Ogre::Root *root = mGraphicsSystem->getRoot();
@@ -127,12 +55,12 @@ namespace Demo
                                   mGraphicsSystem->getCamera() );
         mTerra->setCastShadows( false );
 
-        //mTerra->load( "Heightmap.png", Ogre::Vector3::ZERO, Ogre::Vector3( 256.0f, 1.0f, 256.0f ) );
-        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 128.0f, 5.0f, 128.0f ) );
-        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 1024.0f, 5.0f, 1024.0f ) );
-        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 4096.0f * 4, 15.0f * 64.0f*4, 4096.0f * 4 ) );
-        mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 4096.0f * 0.5f, 64.0f ), Ogre::Vector3( 4096.0f, 4096.0f, 4096.0f ) );
-        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 4096.0f * 0.5f, 64.0f ), Ogre::Vector3( 14096.0f, 14096.0f, 14096.0f ) );
+        //mTerra->load( "Heightmap.png", Ogre::Vector3::ZERO, Ogre::Vector3( 256.0f, 1.0f, 256.0f ), false );
+        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 128.0f, 5.0f, 128.0f ), false );
+        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 1024.0f, 5.0f, 1024.0f ), false );
+        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 0, 64.0f ), Ogre::Vector3( 4096.0f * 4, 15.0f * 64.0f*4, 4096.0f * 4 ), false );
+        mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 4096.0f * 0.5f, 64.0f ), Ogre::Vector3( 4096.0f, 4096.0f, 4096.0f ), false );
+        //mTerra->load( "Heightmap.png", Ogre::Vector3( 64.0f, 4096.0f * 0.5f, 64.0f ), Ogre::Vector3( 14096.0f, 14096.0f, 14096.0f ), false );
 
         Ogre::SceneNode *rootNode = sceneManager->getRootSceneNode( Ogre::SCENE_STATIC );
         Ogre::SceneNode *sceneNode = rootNode->createChildSceneNode( Ogre::SCENE_STATIC );
@@ -180,7 +108,7 @@ namespace Demo
                                                      Ogre::SCENE_STATIC );
         Ogre::Vector3 objPos( 3.5f, 4.5f, -2.0f );
         mTerra->getHeightAt( objPos );
-        objPos.y += -Ogre::min( item->getLocalAabb().getMinimum().y, Ogre::Real(0.0f) ) * 0.01f - 0.5f;
+        objPos.y += -std::min( item->getLocalAabb().getMinimum().y, Ogre::Real(0.0f) ) * 0.01f - 0.5f;
         sceneNode = rootNode->createChildSceneNode( Ogre::SCENE_STATIC, objPos );
         sceneNode->scale( 0.01f, 0.01f, 0.01f );
         sceneNode->attachObject( item );
@@ -190,7 +118,7 @@ namespace Demo
                                          Ogre::SCENE_STATIC );
         objPos = Ogre::Vector3( -3.5f, 4.5f, -2.0f );
         mTerra->getHeightAt( objPos );
-        objPos.y += -Ogre::min( item->getLocalAabb().getMinimum().y, Ogre::Real(0.0f) ) * 0.01f - 0.5f;
+        objPos.y += -std::min( item->getLocalAabb().getMinimum().y, Ogre::Real(0.0f) ) * 0.01f - 0.5f;
         sceneNode = rootNode->createChildSceneNode( Ogre::SCENE_STATIC, objPos );
         sceneNode->scale( 0.01f, 0.01f, 0.01f );
         sceneNode->attachObject( item );
@@ -304,13 +232,13 @@ namespace Demo
         if( arg.keysym.scancode == SDL_SCANCODE_KP_PLUS )
         {
             mTimeOfDay += 0.1f;
-            mTimeOfDay = Ogre::min( mTimeOfDay, (float)Ogre::Math::PI );
+            mTimeOfDay = std::min( mTimeOfDay, (float)Ogre::Math::PI );
         }
         else if( arg.keysym.scancode == SDL_SCANCODE_MINUS ||
                  arg.keysym.scancode == SDL_SCANCODE_KP_MINUS )
         {
             mTimeOfDay -= 0.1f;
-            mTimeOfDay = Ogre::max( mTimeOfDay, 0 );
+            mTimeOfDay = std::max( mTimeOfDay, 0.0f );
         }
 
         if( arg.keysym.scancode == SDL_SCANCODE_KP_9 )

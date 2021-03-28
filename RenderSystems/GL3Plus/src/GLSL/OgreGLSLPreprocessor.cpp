@@ -212,6 +212,7 @@ namespace Ogre {
             cpp.Define (Args [i].String, Args [i].Length, "", 0);
 
         // Now run the macro expansion through the supplimentary preprocessor
+        cpp.SupplimentaryExpand = true;
         Token xt = cpp.Parse (Value);
 
         Expanding = false;
@@ -242,6 +243,15 @@ namespace Ogre {
 
     CPreprocessor::ErrorHandlerFunc CPreprocessor::ErrorHandler = DefaultError;
 
+    CPreprocessor::CPreprocessor() : MacroList( NULL )
+    {
+        Source = 0;
+        SourceEnd = 0;
+        EnableOutput = 1;
+        Line = 0;
+        BOL = true;
+        SupplimentaryExpand = false;
+    }
 
     CPreprocessor::CPreprocessor (const Token &iToken, int iLine) : MacroList (NULL)
     {
@@ -250,6 +260,7 @@ namespace Ogre {
         EnableOutput = 1;
         Line = iLine;
         BOL = true;
+        SupplimentaryExpand = false;
     }
 
     CPreprocessor::~CPreprocessor ()
@@ -1386,7 +1397,10 @@ namespace Ogre {
                 // Backslash-Newline sequences are deleted, no matter where.
                 empty_lines++;
                 break;
-
+            case Token::TK_PUNCTUATION:
+                if (output_enabled && (t.String[0] != '#' || !SupplimentaryExpand))
+                    output.Append (t);
+                break;
             case Token::TK_NEWLINE:
                 if (empty_lines)
                 {

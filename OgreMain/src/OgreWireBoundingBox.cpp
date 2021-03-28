@@ -45,7 +45,7 @@ namespace v1 {
 
     void WireBoundingBox::_initWireBoundingBox()
     {
-        mRenderOp.vertexData = OGRE_NEW VertexData();
+        mRenderOp.vertexData = OGRE_NEW VertexData(NULL);
 
         mRenderOp.indexData = 0;
         mRenderOp.vertexData->vertexCount = 24; 
@@ -61,7 +61,7 @@ namespace v1 {
 
 
         HardwareVertexBufferSharedPtr vbuf = 
-            HardwareBufferManager::getSingleton().createVertexBuffer(
+            mRenderOp.vertexData->_getHardwareBufferManager()->createVertexBuffer(
                 decl->getVertexSize(POSITION_BINDING),
                 mRenderOp.vertexData->vertexCount,
                 HardwareBuffer::HBU_STATIC_WRITE_ONLY);

@@ -28,7 +28,6 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 
 #include "OgreMath.h"
-#include "asm_math.h"
 #include "OgreVector2.h"
 #include "OgreVector3.h"
 #include "OgreVector4.h"
@@ -49,12 +48,12 @@ namespace Ogre
 
     const Real Math::POS_INFINITY = std::numeric_limits<Real>::infinity();
     const Real Math::NEG_INFINITY = -std::numeric_limits<Real>::infinity();
-    const Real Math::PI = Real( 4.0 * atan( 1.0 ) );
+    const Real Math::PI = Real( 4.0 * std::atan( 1.0 ) );
     const Real Math::TWO_PI = Real( 2.0 * PI );
     const Real Math::HALF_PI = Real( 0.5 * PI );
     const Real Math::fDeg2Rad = PI / Real(180.0);
     const Real Math::fRad2Deg = Real(180.0) / PI;
-    const Real Math::LOG2 = log(Real(2.0));
+    const Real Math::LOG2 = std::log(Real(2.0));
 
     int Math::mTrigTableSize;
    Math::AngleUnit Math::msAngleUnit;
@@ -96,8 +95,8 @@ namespace Ogre
         for (int i = 0; i < mTrigTableSize; ++i)
         {
             angle = Math::TWO_PI * i / mTrigTableSize;
-            mSinTable[i] = sin(angle);
-            mTanTable[i] = tan(angle);
+            mSinTable[i] = std::sin(angle);
+            mTanTable[i] = std::tan(angle);
         }
     }
     //-----------------------------------------------------------------------   
@@ -134,7 +133,7 @@ namespace Ogre
         if ( -1.0 < fValue )
         {
             if ( fValue < 1.0 )
-                return Radian(acos(fValue));
+                return Radian(std::acos(fValue));
             else
                 return Radian(0.0);
         }
@@ -149,7 +148,7 @@ namespace Ogre
         if ( -1.0 < fValue )
         {
             if ( fValue < 1.0 )
-                return Radian(asin(fValue));
+                return Radian(std::asin(fValue));
             else
                 return Radian(HALF_PI);
         }
@@ -170,16 +169,11 @@ namespace Ogre
         return 0.0;
     }
     //-----------------------------------------------------------------------
-    Real Math::InvSqrt(Real fValue)
-    {
-        return Real(asm_rsq(fValue));
-    }
-    //-----------------------------------------------------------------------
     Real Math::UnitRandom ()
     {
         if (mRandProvider)
             return mRandProvider->getRandomUnit();
-        else return asm_rand() / asm_rand_max();
+        else return Real(rand()) / RAND_MAX;
     }
     
     //-----------------------------------------------------------------------
@@ -370,15 +364,6 @@ namespace Ogre
 
         return true;
     }
-    //-----------------------------------------------------------------------
-    bool Math::RealEqual( Real a, Real b, Real tolerance )
-    {
-        if (fabs(b-a) <= tolerance)
-            return true;
-        else
-            return false;
-    }
-
     //-----------------------------------------------------------------------
     std::pair<bool, Real> Math::intersects(const Ray& ray, const Plane& plane)
     {

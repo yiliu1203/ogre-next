@@ -55,7 +55,10 @@ namespace Ogre
         mFinalTextureName( 0 ),
         mMsaaFramebufferName( 0 )
     {
-        _setToDisplayDummyTexture();
+        // The vtable hasn't yet been populated so
+        // GL3PlusTextureGpuWindow::_setToDisplayDummyTexture won't kick in
+        if( !isRenderWindowSpecific() )
+            _setToDisplayDummyTexture();
     }
     //-----------------------------------------------------------------------------------
     GL3PlusTextureGpu::~GL3PlusTextureGpu()
@@ -496,7 +499,7 @@ namespace Ogre
                         bufferBits = GL_COLOR_BUFFER_BIT;
 
                     GLint srcX0 = srcBox.x;
-                    GLint srcX1 = srcBox.x + srcBox.width;;
+                    GLint srcX1 = srcBox.x + srcBox.width;
                     GLint srcY0;
                     GLint srcY1;
                     if( this->isRenderWindowSpecific() )
@@ -613,9 +616,10 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void GL3PlusTextureGpu::copyTo( TextureGpu *dst, const TextureBox &dstBox, uint8 dstMipLevel,
                                     const TextureBox &srcBox, uint8 srcMipLevel,
-                                    bool keepResolvedTexSynced )
+                                    bool keepResolvedTexSynced,
+                                    ResourceAccess::ResourceAccess issueBarriers )
     {
-        TextureGpu::copyTo( dst, dstBox, dstMipLevel, srcBox, srcMipLevel );
+        TextureGpu::copyTo( dst, dstBox, dstMipLevel, srcBox, srcMipLevel, issueBarriers );
 
         assert( dynamic_cast<GL3PlusTextureGpu*>( dst ) );
 
@@ -624,7 +628,7 @@ namespace Ogre
                 static_cast<GL3PlusTextureGpuManager*>( mTextureManager );
         const GL3PlusSupport &support = textureManagerGl->getGlSupport();
 
-        if( !this->isRenderWindowSpecific() && !dst->isRenderWindowSpecific() &&
+        if( !this->isOpenGLRenderWindow() && !dst->isOpenGLRenderWindow() &&
             ( !this->isMultisample() || !dst->isMultisample() ||
               ( this->hasMsaaExplicitResolves() && dst->hasMsaaExplicitResolves() ) ) )
         {
@@ -689,7 +693,7 @@ namespace Ogre
         }
     }
     //-----------------------------------------------------------------------------------
-    void GL3PlusTextureGpu::_autogenerateMipmaps(void)
+    void GL3PlusTextureGpu::_autogenerateMipmaps( bool bUseBarrierSolver )
     {
         if( !mFinalTextureName )
             return;
@@ -739,6 +743,10 @@ namespace Ogre
         mDepthBufferPoolId( 1u ),
         mPreferDepthTexture( false ),
         mDesiredDepthBufferFormat( PFG_UNKNOWN )
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+        ,
+        mOrientationMode( msDefaultOrientationMode )
+#endif
     {
         if( mPixelFormat == PFG_NULL )
             mDepthBufferPoolId = 0;
@@ -823,4 +831,19 @@ namespace Ogre
     {
         return mDesiredDepthBufferFormat;
     }
+    //-----------------------------------------------------------------------------------
+    void GL3PlusTextureGpuRenderTarget::setOrientationMode( OrientationMode orientationMode )
+    {
+        OGRE_ASSERT_LOW( mResidencyStatus == GpuResidency::OnStorage || isRenderWindowSpecific() );
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+        mOrientationMode = orientationMode;
+#endif
+    }
+    //-----------------------------------------------------------------------------------
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+    OrientationMode GL3PlusTextureGpuRenderTarget::getOrientationMode( void ) const
+    {
+        return mOrientationMode;
+    }
+#endif
 }

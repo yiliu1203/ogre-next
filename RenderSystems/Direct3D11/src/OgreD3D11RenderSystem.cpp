@@ -37,6 +37,7 @@ THE SOFTWARE.
 #include "OgreMeshManager.h"
 #include "OgreMeshManager2.h"
 #include "OgreSceneManagerEnumerator.h"
+#include "Compositor/OgreCompositorManager2.h"
 #include "OgreD3D11HardwareBufferManager.h"
 #include "OgreD3D11HardwareIndexBuffer.h"
 #include "OgreD3D11HardwareVertexBuffer.h"
@@ -65,6 +66,7 @@ THE SOFTWARE.
 #include "Vao/OgreD3D11VaoManager.h"
 #include "Vao/OgreD3D11BufferInterface.h"
 #include "Vao/OgreD3D11VertexArrayObject.h"
+#include "Vao/OgreD3D11ReadOnlyBufferPacked.h"
 #include "Vao/OgreD3D11TexBufferPacked.h"
 #include "Vao/OgreD3D11UavBufferPacked.h"
 #include "Vao/OgreIndexBufferPacked.h"
@@ -236,8 +238,10 @@ namespace Ogre
                                       d3dDriver->getDeviceAdapter() : NULL;
 
         assert( driverType == D3D_DRIVER_TYPE_HARDWARE || driverType == D3D_DRIVER_TYPE_SOFTWARE ||
-                driverType == D3D_DRIVER_TYPE_WARP );
-        if( d3dDriver != NULL )
+                driverType == D3D_DRIVER_TYPE_REFERENCE || driverType == D3D_DRIVER_TYPE_WARP );
+        if ( driverType == D3D_DRIVER_TYPE_REFERENCE || driverType == D3D_DRIVER_TYPE_WARP )
+            d3dDriver = NULL;
+        else if( d3dDriver != NULL )
         {
             if( 0 == wcscmp(d3dDriver->getAdapterIdentifier().Description, L"NVIDIA PerfHUD") )
                 driverType = D3D_DRIVER_TYPE_REFERENCE;
@@ -454,6 +458,7 @@ namespace Ogre
         optDriverType.name = "Driver type";
         optDriverType.possibleValues.push_back("Hardware");
         optDriverType.possibleValues.push_back("Software");
+        optDriverType.possibleValues.push_back("Reference");
         optDriverType.possibleValues.push_back("Warp");
         optDriverType.currentValue = "Hardware";
         optDriverType.immutable = false;
@@ -627,6 +632,16 @@ namespace Ogre
 
     }
     //---------------------------------------------------------------------
+    const char* D3D11RenderSystem::getPriorityConfigOption( size_t ) const
+    {
+        return "Rendering Device";
+    }
+    //---------------------------------------------------------------------
+    size_t D3D11RenderSystem::getNumPriorityConfigOptions( void ) const
+    {
+        return 1u;
+    }
+    //---------------------------------------------------------------------
     void D3D11RenderSystem::refreshFSAAOptions(void)
     {
         ConfigOptionMap::iterator it = mOptions.find( "FSAA" );
@@ -639,7 +654,7 @@ namespace Ogre
         {
             it = mOptions.find("Video Mode");
             ComPtr<ID3D11Device> device;
-            createD3D11Device( mVendorExtension, "", driver, mDriverType,
+            createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), driver, mDriverType,
                                mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel,
                                NULL, device.GetAddressOf() );
             // 'videoMode' could be NULL if working over RDP/Simulator
@@ -757,7 +772,7 @@ namespace Ogre
 #endif
 
         // create the device for the selected adapter
-        createDevice( windowTitle );
+        createDevice();
 
         if( autoCreateWindow )
         {
@@ -1059,6 +1074,7 @@ namespace Ogre
 
         // Set number of texture units, always 16
         rsc->setNumTextureUnits(16);
+        rsc->setMaxSupportedAnisotropy(mFeatureLevel >= D3D_FEATURE_LEVEL_9_2 ? 16 : 2); // From http://msdn.microsoft.com/en-us/library/windows/desktop/ff476876.aspx
         rsc->setCapability(RSC_ANISOTROPY);
         rsc->setCapability(RSC_AUTOMIPMAP);
         rsc->setCapability(RSC_BLENDING);
@@ -1617,11 +1633,9 @@ namespace Ogre
         }
     }
     //---------------------------------------------------------------------
-    void D3D11RenderSystem::createDevice( const String &windowTitle )
+    void D3D11RenderSystem::createDevice( void )
     {
         mDevice.ReleaseAll();
-
-        mLastWindowTitlePassedToExtensions = windowTitle;
 
         D3D11Driver *d3dDriver = getDirect3DDrivers(true)->findByName( mDriverName );
         mActiveD3DDriver = *d3dDriver; // store copy of selected driver, so that it is not
@@ -1638,10 +1652,13 @@ namespace Ogre
         }
 
         ComPtr<ID3D11Device> device;
-        createD3D11Device( mVendorExtension, windowTitle, d3dDriver, mDriverType,
+        createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), d3dDriver, mDriverType,
                            mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel, &mFeatureLevel,
                            device.GetAddressOf() );
         mDevice.TransferOwnership( device );
+
+        LogManager::getSingleton().stream() << "D3D11: Device Feature Level " <<
+            (mFeatureLevel >> 12) << "." << ((mFeatureLevel >> 8) & 0xF);
 
         LARGE_INTEGER driverVersion = mDevice.GetDriverVersion();
         mDriverVersion.major = HIWORD(driverVersion.HighPart);
@@ -1665,11 +1682,14 @@ namespace Ogre
         // release device depended resources
         fireDeviceEvent(&mDevice, "DeviceLost");
 
+        Root::getSingleton().getCompositorManager2()->_releaseManualHardwareResources();
         SceneManagerEnumerator::SceneManagerIterator scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
         while(scnIt.hasMoreElements())
             scnIt.getNext()->_releaseManualHardwareResources();
 
         Root::getSingleton().getHlmsManager()->_changeRenderSystem((RenderSystem*)0);
+
+        MeshManager::getSingleton().unloadAll(Resource::LF_MARKED_FOR_RELOAD);
 
         static_cast<D3D11TextureGpuManager*>(mTextureGpuManager)->_destroyD3DResources();
         static_cast<D3D11VaoManager*>(mVaoManager)->_destroyD3DResources();
@@ -1682,7 +1702,7 @@ namespace Ogre
         v1::HardwareBufferManager::getSingleton()._releaseBufferCopies(true);
 
         // recreate device
-        createDevice( mLastWindowTitlePassedToExtensions );
+        createDevice();
 
         static_cast<D3D11VaoManager*>(mVaoManager)->_createD3DResources();
         static_cast<D3D11TextureGpuManager*>(mTextureGpuManager)->_createD3DResources();
@@ -1693,8 +1713,9 @@ namespace Ogre
         Root::getSingleton().getHlmsManager()->_changeRenderSystem(this);
 
         v1::MeshManager::getSingleton().reloadAll(Resource::LF_PRESERVE_STATE);
-        MeshManager::getSingleton().reloadAll(Resource::LF_PRESERVE_STATE);
+        MeshManager::getSingleton().reloadAll(Resource::LF_MARKED_FOR_RELOAD);
 
+        Root::getSingleton().getCompositorManager2()->_restoreManualHardwareResources();
         scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
         while(scnIt.hasMoreElements())
             scnIt.getNext()->_restoreManualHardwareResources();
@@ -1782,7 +1803,7 @@ namespace Ogre
     {
     }
     //---------------------------------------------------------------------
-    void D3D11RenderSystem::_setTexture( size_t stage, TextureGpu *texPtr )
+    void D3D11RenderSystem::_setTexture( size_t stage, TextureGpu *texPtr, bool bDepthReadOnly )
     {
         if( texPtr )
         {
@@ -2063,22 +2084,22 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setVertexTexture(size_t stage, TextureGpu *tex)
     {
-        _setTexture(stage, tex);
+        _setTexture(stage, tex, false);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setGeometryTexture(size_t stage, TextureGpu *tex)
     {
-        _setTexture(stage, tex);
+        _setTexture(stage, tex, false);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setTessellationHullTexture(size_t stage, TextureGpu *tex)
     {
-        _setTexture(stage, tex);
+        _setTexture(stage, tex, false);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setTessellationDomainTexture(size_t stage, TextureGpu *tex)
     {
-        _setTexture(stage, tex);
+        _setTexture(stage, tex, false);
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setTextureCoordCalculation( size_t stage, TexCoordCalcMethod m,
@@ -2426,7 +2447,8 @@ namespace Ogre
         samplerDesc.AddressW = D3D11Mappings::get( newBlock->mW );
 
         samplerDesc.MipLODBias      = newBlock->mMipLodBias;
-        samplerDesc.MaxAnisotropy   = static_cast<UINT>( newBlock->mMaxAnisotropy );
+        samplerDesc.MaxAnisotropy   = std::min( (UINT)newBlock->mMaxAnisotropy,
+                                                (UINT)getCapabilities()->getMaxSupportedAnisotropy() );
         samplerDesc.BorderColor[0]  = newBlock->mBorderColour.r;
         samplerDesc.BorderColor[1]  = newBlock->mBorderColour.g;
         samplerDesc.BorderColor[2]  = newBlock->mBorderColour.b;
@@ -2501,9 +2523,7 @@ namespace Ogre
 
         for( size_t i=0u; i<numElements; ++i )
         {
-            if( itor->empty() )
-                ;
-            else if( itor->isTexture() )
+            if( itor->isTexture() )
             {
                 const DescriptorSetTexture2::TextureSlot &texSlot = itor->getTexture();
                 const D3D11TextureGpu *texture = static_cast<const D3D11TextureGpu*>( texSlot.texture );
@@ -2512,9 +2532,18 @@ namespace Ogre
             else
             {
                 const DescriptorSetTexture2::BufferSlot &bufferSlot = itor->getBuffer();
-                const D3D11TexBufferPacked *texBuffer =
-                        static_cast<const D3D11TexBufferPacked*>( bufferSlot.buffer );
-                srvList[i] = texBuffer->createSrv( bufferSlot );
+                if( bufferSlot.buffer->getBufferPackedType() == BP_TYPE_TEX )
+                {
+                    const D3D11TexBufferPacked *texBuffer =
+                            static_cast<const D3D11TexBufferPacked*>( bufferSlot.buffer );
+                    srvList[i] = texBuffer->createSrv( bufferSlot );
+                }
+                else
+                {
+                    const D3D11ReadOnlyBufferPacked *roBuffer =
+                        static_cast<const D3D11ReadOnlyBufferPacked *>( bufferSlot.buffer );
+                    srvList[i] = roBuffer->createSrv( bufferSlot );
+                }
             }
 
             ++itor;
@@ -2760,10 +2789,10 @@ namespace Ogre
         deviceContext->PSSetShader( 0, 0, 0 );
         deviceContext->CSSetShader( 0, 0, 0 );
 
+        mBoundComputeProgram = newComputeShader;
+
         if( !pso )
             return;
-
-        mBoundComputeProgram = newComputeShader;
 
         deviceContext->CSSetShader( mBoundComputeProgram->getComputeShader(), 0, 0 );
         mActiveComputeGpuProgramParameters = pso->computeParams;
@@ -3683,9 +3712,9 @@ namespace Ogre
         mVendorExtension = D3D11VendorExtension::initializeExtension( GPU_VENDOR_COUNT, 0 );
 
         ComPtr<ID3D11Device> device;
-        createD3D11Device( mVendorExtension, "", NULL, D3D_DRIVER_TYPE_HARDWARE,
-                           mMinRequestedFeatureLevel, mMaxRequestedFeatureLevel, 0,
-                           device.GetAddressOf() );
+        createD3D11Device( mVendorExtension, Root::getSingleton().getAppName(), NULL,
+                           D3D_DRIVER_TYPE_HARDWARE, mMinRequestedFeatureLevel,
+                           mMaxRequestedFeatureLevel, 0, device.GetAddressOf() );
         mDevice.TransferOwnership( device );
     }
     //---------------------------------------------------------------------

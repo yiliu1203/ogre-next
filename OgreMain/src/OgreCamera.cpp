@@ -39,6 +39,7 @@ THE SOFTWARE.
 namespace Ogre {
 
     String Camera::msMovableType = "Camera";
+    Camera::CameraSortMode Camera::msDefaultSortMode = Camera::SortModeDepth;
     //-----------------------------------------------------------------------
     Camera::Camera( IdType id, ObjectMemoryManager *objectMemoryManager, SceneManager* sm )
         : Frustum( id, objectMemoryManager ),
@@ -59,7 +60,8 @@ namespace Ogre {
         mNeedsDepthClamp(false),
         mUseMinPixelSize(false),
         mPixelDisplayRatio(0),
-        mConstantBiasScale(1.0f)
+        mConstantBiasScale(1.0f),
+        mSortMode( msDefaultSortMode )
     {
 
         // Reasonable defaults to camera params
@@ -457,15 +459,13 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    void Camera::_notifyRenderedFaces( size_t numfaces ) { mVisFacesLastRender = numfaces; }
-
+    void Camera::_notifyRenderingMetrics( const RenderingMetrics& metrics ) { mLastRenderingMetrics = metrics; }
     //-----------------------------------------------------------------------
-    void Camera::_notifyRenderedBatches( size_t numbatches ) { mVisBatchesLastRender = numbatches; }
-
+    const RenderingMetrics& Camera::_getRenderingMetrics( void ) const { return mLastRenderingMetrics; }
     //-----------------------------------------------------------------------
-    size_t Camera::_getNumRenderedFaces( void ) const { return mVisFacesLastRender; }
+    size_t Camera::_getNumRenderedFaces( void ) const { return mLastRenderingMetrics.mFaceCount; }
     //-----------------------------------------------------------------------
-    size_t Camera::_getNumRenderedBatches( void ) const { return mVisBatchesLastRender; }
+    size_t Camera::_getNumRenderedBatches( void ) const { return mLastRenderingMetrics.mBatchCount; }
     //-----------------------------------------------------------------------
     const Quaternion& Camera::getOrientation(void) const
     {
@@ -626,7 +626,8 @@ namespace Ogre {
         Real tX = screenX; Real a = getOrientationMode() * Math::HALF_PI;
         screenX = Math::Cos(a) * (tX-0.5f) + Math::Sin(a) * (screenY-0.5f) + 0.5f;
         screenY = Math::Sin(a) * (tX-0.5f) + Math::Cos(a) * (screenY-0.5f) + 0.5f;
-        if ((int)getOrientationMode()&1) screenY = 1.f - screenY;
+        if( (int)getOrientationMode() & 1 )
+            screenY = 1.f - screenY;
 #endif
 
         Real nx = (2.0f * screenX) - 1.0f;
@@ -802,16 +803,6 @@ namespace Ogre {
         setWindowImpl();
         return mWindowClipPlanes;
     }
-    // -------------------------------------------------------------------
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-    Real Camera::getBoundingRadius(void) const
-    {
-        // return a little bigger than the near distance
-        // just to keep things just outside
-        return mNearDist * 1.5f;
-
-    }
-#endif
     //-----------------------------------------------------------------------
     const Vector3& Camera::getPositionForViewUpdate(void) const
     {

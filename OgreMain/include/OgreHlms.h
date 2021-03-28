@@ -322,8 +322,8 @@ namespace Ogre
         static void evaluateParamArgs( SubStringRef &outSubString, StringVector &outArgs,
                                        bool &outSyntaxError );
 
-        static size_t calculateLineCount(const String &buffer, size_t idx );
-        static size_t calculateLineCount( const SubStringRef &subString );
+        static unsigned long calculateLineCount(const String &buffer, size_t idx );
+        static unsigned long calculateLineCount( const SubStringRef &subString );
 
         /** Caches a set of properties (i.e. key-value pairs) & snippets of shaders. If an
             exact entry exists in the cache, its index is returned. Otherwise a new entry
@@ -358,6 +358,8 @@ namespace Ogre
             PSO to (potentially) modify.
         */
         void applyStrongMacroblockRules( HlmsPso &pso );
+
+        virtual void setupRootLayout( RootLayout &rootLayout ) = 0;
 
         HighLevelGpuProgramPtr compileShaderCode( const String &source,
                                                   const String &debugFilenameOutput,
@@ -457,6 +459,7 @@ namespace Ogre
         void _notifyManager( HlmsManager *manager )         { mHlmsManager = manager; }
         HlmsManager* getHlmsManager(void) const             { return mHlmsManager; }
         const String& getShaderProfile(void) const          { return mShaderProfile; }
+        IdString getShaderSyntax(void) const                { return mShaderSyntax; }
 
         void getTemplateChecksum( uint64 outHash[2] ) const;
 
@@ -678,6 +681,10 @@ namespace Ogre
         */
         virtual void calculateHashFor( Renderable *renderable, uint32 &outHash, uint32 &outCasterHash );
 
+        virtual void analyzeBarriers( BarrierSolver &barrierSolver,
+                                      ResourceTransitionArray &resourceTransitions,
+                                      Camera *renderingCamera, const bool bCasterPass );
+
         /** Called every frame by the Render Queue to cache the properties needed by this
             pass. i.e. Number of PSSM splits, number of shadow casting lights, etc
         @param shadowNode
@@ -793,6 +800,11 @@ namespace Ogre
         int32 _getProperty( IdString key, int32 defaultVal=0 ) const
                                                 { return getProperty( key, defaultVal ); }
 
+        void _setTextureReg( ShaderType shaderType, const char *texName, int32 texUnit )
+        {
+            setTextureReg( shaderType, texName, texUnit );
+        }
+
         /// Utility helper, mostly useful to HlmsListener implementations.
         static void setProperty( HlmsPropertyVec &properties, IdString key, int32 value );
         /// Utility helper, mostly useful to HlmsListener implementations.
@@ -819,6 +831,7 @@ namespace Ogre
         static const IdString Normal;
         static const IdString QTangent;
         static const IdString Tangent;
+        static const IdString Tangent4;
 
         static const IdString Colour;
 
@@ -905,16 +918,20 @@ namespace Ogre
         static const IdString AlphaTest;
         static const IdString AlphaTestShadowCasterOnly;
         static const IdString AlphaBlend;
+        static const IdString AlphaToCoverage;
         // Per material. Related with SsRefractionsAvailable
         static const IdString ScreenSpaceRefractions;
 
         //Standard depth range is being used instead of reverse Z.
         static const IdString NoReverseDepth;
+        static const IdString ReadOnlyIsTex;
 
         static const IdString Syntax;
         static const IdString Hlsl;
         static const IdString Glsl;
         static const IdString Glsles;
+        static const IdString Glslvk;
+        static const IdString Hlslvk;
         static const IdString Metal;
         static const IdString GL3Plus;
         static const IdString GLES;

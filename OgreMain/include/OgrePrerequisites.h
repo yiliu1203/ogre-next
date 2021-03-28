@@ -145,7 +145,7 @@ namespace Ogre {
     typedef unsigned int uint;
     typedef unsigned long ulong;
 
-    #if __cplusplus >= 201103L
+    #if __cplusplus >= 201103L || ( defined(_MSC_VER) && _MSC_VER >= 1800 )
     #define register
     #endif
 // Pre-declare classes
@@ -292,6 +292,7 @@ namespace Ogre {
     class Ray;
     class RaySceneQuery;
     class RaySceneQueryListener;
+    class ReadOnlyBufferPacked;
     class Rectangle2D;
     class Renderable;
     class RenderPriorityGroup;
@@ -308,6 +309,7 @@ namespace Ogre {
     class ResourceGroupManager;
     class ResourceManager;
     class Root;
+    class RootLayout;
     class SceneManager;
     class SceneManagerEnumerator;
     class SceneNode;
@@ -625,6 +627,8 @@ namespace std
 // are passed by reference & need to be everywhere in headers (thus affecting compilation times)
 namespace Ogre
 {
+    template <typename, typename> class STLAllocator;
+
     template <typename T, typename A = STLAllocator<T, GeneralAllocPolicy> >
     class StdVector;
 

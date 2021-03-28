@@ -152,11 +152,21 @@ namespace Ogre
         /// For custom passes.
         CompositorPassProvider  *mCompositorPassProvider;
 
+        BarrierSolver &mBarrierSolver;
+        ResourceTransitionArray mFinalResourceTransition;
+
+        bool mRenderWindowsPresentBarrierDirty;
+
         void addQueuedWorkspaces(void);
+
+        void prepareRenderWindowsForPresent( void );
 
     public:
         CompositorManager2( RenderSystem *renderSystem );
         ~CompositorManager2();
+
+        void _releaseManualHardwareResources();
+        void _restoreManualHardwareResources();
 
         /** The final rendering is done by passing the RenderWindow to one of the input
             channels. This functions does exactly that.
@@ -338,23 +348,21 @@ namespace Ogre
             This is useful when you want to skip a pass (like Clear) when rendering the second
             eye (or the second split from the second player).
         */
-        CompositorWorkspace* addWorkspace( SceneManager *sceneManager, TextureGpu *finalRenderTarget,
+        CompositorWorkspace *addWorkspace( SceneManager *sceneManager, TextureGpu *finalRenderTarget,
                                            Camera *defaultCam, IdString definitionName, bool bEnabled,
-                                           int position=-1, const UavBufferPackedVec *uavBuffers=0,
-                                           const ResourceLayoutMap* initialLayouts=0,
-                                           const ResourceAccessMap* initialUavAccess=0,
+                                           int position = -1, const UavBufferPackedVec *uavBuffers = 0,
+                                           const ResourceStatusMap *initialLayouts = 0,
                                            const Vector4 &vpOffsetScale = Vector4::ZERO,
-                                           uint8 vpModifierMask=0x00, uint8 executionMask=0xFF );
+                                           uint8 vpModifierMask = 0x00, uint8 executionMask = 0xFF );
 
         /// Overload that allows having multiple external input/outputs
-        CompositorWorkspace* addWorkspace( SceneManager *sceneManager,
+        CompositorWorkspace *addWorkspace( SceneManager *sceneManager,
                                            const CompositorChannelVec &externalRenderTargets,
                                            Camera *defaultCam, IdString definitionName, bool bEnabled,
-                                           int position=-1, const UavBufferPackedVec *uavBuffers=0,
-                                           const ResourceLayoutMap* initialLayouts=0,
-                                           const ResourceAccessMap* initialUavAccess=0,
+                                           int position = -1, const UavBufferPackedVec *uavBuffers = 0,
+                                           const ResourceStatusMap *initialLayouts = 0,
                                            const Vector4 &vpOffsetScale = Vector4::ZERO,
-                                           uint8 vpModifierMask=0x00, uint8 executionMask=0xFF );
+                                           uint8 vpModifierMask = 0x00, uint8 executionMask = 0xFF );
 
         /// Removes the given workspace. Pointer is no longer valid after this call
         void removeWorkspace( CompositorWorkspace *workspace );
@@ -379,6 +387,8 @@ namespace Ogre
 
         /// Calls @see CompositorNode::_validateAndFinish on all objects who aren't yet validated
         void validateAllNodes();
+
+        BarrierSolver &getBarrierSolver( void ) { return mBarrierSolver; }
 
         /// Will call the renderSystem which in turns calls _updateImplementation
         void _update( void );
@@ -412,6 +422,8 @@ namespace Ogre
 
         void addListener( CompositorWorkspaceListener *listener );
         void removeListener( CompositorWorkspaceListener *listener );
+
+        void _notifyBarriersDirty( void );
 
         RenderSystem* getRenderSystem(void) const;
     };

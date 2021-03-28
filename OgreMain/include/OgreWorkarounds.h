@@ -29,6 +29,20 @@ THE SOFTWARE.
 #ifndef _OgreWorkarounds_H_
 #define _OgreWorkarounds_H_
 
+#include <stddef.h>
+
+namespace Ogre
+{
+    struct _OgreExport Workarounds
+    {
+        /**
+        @param outStr
+            String wrapped as a void*. Usage:
+
+            Ogre::String str;
+            Workarounds::dump( (void *)&str );
+        */
+        static void dump( void *outStr );
 #ifdef OGRE_BUILD_RENDERSYSTEM_GLES2
 
 //PowerVR SGX 540 does not correctly transpose matrices in glProgramUniformMatrix4fvEXT,
@@ -49,5 +63,51 @@ THE SOFTWARE.
 #define OGRE_GLES2_WORKAROUND_2		1
 
 #endif
+
+#ifdef OGRE_BUILD_RENDERSYSTEM_VULKAN
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+// Adreno 505, 506 and many others expose 64kb of UBO memory.
+// However binding exactly 65536 bytes of UBO memory causes the GPU to read all 0s.
+// We limit const buffer memory to 65472 bytes instead.
+//
+// Qualcomm claims to have patched this bug.
+// As of driver 512.472.0 (Android 10), this bug is still present
+//
+// First seen: Since the very first driver version
+// Last seen: 2020-09-08
+#define OGRE_VK_WORKAROUND_ADRENO_UBO64K
+        static bool mAdrenoUbo64kLimitTriggered;
+        /// If > 0, then the workaround is active
+        /// The value contains the maximum range we will bind
+        static size_t mAdrenoUbo64kLimit;
+
+// Adreno 505, 506 and many others get glitchy shadows when using D32_FLOAT.
+//
+// Qualcomm claims to have patched this bug at version 512.440
+// Bug appears to be fixed at version 512.415
+//
+// First seen: Since the very first driver version
+// Last seen: 2020-09-08
+#define OGRE_VK_WORKAROUND_ADRENO_D32_FLOAT
+        static bool mAdrenoD32FloatBug;
+
+// Adreno 5xx & 6xx series report the minimum features required by Vulkan.
+// However they support much more. In fact they are all DX12 FL12 HW.
+//
+// Qualcomm has patched this bug on 6xx series, driver version 512.444.0.
+// It is unlike Qualcomm will patch this bug for the 5xx series.
+//
+//      maxTexelBufferElements is reported 65535. At least 128MB is supported
+//      16-bit UNORM and SNORM formats are supported. Reported as unsupported.
+//
+// First seen: Since the very first driver version
+// Last seen: 2020-09-08
+#define OGRE_VK_WORKAROUND_ADRENO_5XX_6XX_MINCAPS
+        static bool mAdreno5xx6xxMinCaps;
+#endif
+#endif
+    };
+}
 
 #endif

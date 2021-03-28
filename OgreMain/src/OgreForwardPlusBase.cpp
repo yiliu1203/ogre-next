@@ -34,7 +34,7 @@ THE SOFTWARE.
 #include "OgreCamera.h"
 
 #include "Vao/OgreVaoManager.h"
-#include "Vao/OgreTexBufferPacked.h"
+#include "Vao/OgreReadOnlyBufferPacked.h"
 
 #include "OgreHlms.h"
 
@@ -74,40 +74,10 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     ForwardPlusBase::~ForwardPlusBase()
     {
-        CachedGridVec::iterator itor = mCachedGrid.begin();
-        CachedGridVec::iterator end  = mCachedGrid.end();
-
-        while( itor != end )
-        {
-            CachedGridBufferVec::iterator itBuf = itor->gridBuffers.begin();
-            CachedGridBufferVec::iterator enBuf = itor->gridBuffers.end();
-
-            while( itBuf != enBuf )
-            {
-                if( itBuf->gridBuffer )
-                {
-                    if( itBuf->gridBuffer->getMappingState() != MS_UNMAPPED )
-                        itBuf->gridBuffer->unmap( UO_UNMAP_ALL );
-                    mVaoManager->destroyTexBuffer( itBuf->gridBuffer );
-                    itBuf->gridBuffer = 0;
-                }
-
-                if( itBuf->globalLightListBuffer )
-                {
-                    if( itBuf->globalLightListBuffer->getMappingState() != MS_UNMAPPED )
-                        itBuf->globalLightListBuffer->unmap( UO_UNMAP_ALL );
-                    mVaoManager->destroyTexBuffer( itBuf->globalLightListBuffer );
-                    itBuf->globalLightListBuffer = 0;
-                }
-
-                ++itBuf;
-            }
-
-            ++itor;
-        }
+        _releaseManualHardwareResources();
     }
     //-----------------------------------------------------------------------------------
-    void ForwardPlusBase::_changeRenderSystem( RenderSystem *newRs )
+    void ForwardPlusBase::_releaseManualHardwareResources()
     {
         CachedGridVec::iterator itor = mCachedGrid.begin();
         CachedGridVec::iterator end  = mCachedGrid.end();
@@ -131,7 +101,7 @@ namespace Ogre
                 {
                     if( itBuf->globalLightListBuffer->getMappingState() != MS_UNMAPPED )
                         itBuf->globalLightListBuffer->unmap( UO_UNMAP_ALL );
-                    mVaoManager->destroyTexBuffer( itBuf->globalLightListBuffer );
+                    mVaoManager->destroyReadOnlyBuffer( itBuf->globalLightListBuffer );
                     itBuf->globalLightListBuffer = 0;
                 }
 
@@ -140,6 +110,11 @@ namespace Ogre
 
             ++itor;
         }
+    }
+    //-----------------------------------------------------------------------------------
+    void ForwardPlusBase::_changeRenderSystem( RenderSystem *newRs )
+    {
+        _releaseManualHardwareResources();
 
         mVaoManager = 0;
 
@@ -541,7 +516,7 @@ namespace Ogre
                     {
                         if( itBuf->globalLightListBuffer->getMappingState() != MS_UNMAPPED )
                             itBuf->globalLightListBuffer->unmap( UO_UNMAP_ALL );
-                        mVaoManager->destroyTexBuffer( itBuf->globalLightListBuffer );
+                        mVaoManager->destroyReadOnlyBuffer( itBuf->globalLightListBuffer );
                         itBuf->globalLightListBuffer = 0;
                     }
 
@@ -578,7 +553,7 @@ namespace Ogre
         return cachedGrid->gridBuffers[cachedGrid->currentBufIdx].gridBuffer;
     }
     //-----------------------------------------------------------------------------------
-    TexBufferPacked* ForwardPlusBase::getGlobalLightListBuffer( const Camera *camera ) const
+    ReadOnlyBufferPacked* ForwardPlusBase::getGlobalLightListBuffer( const Camera *camera ) const
     {
         CachedGrid const *cachedGrid = 0;
 

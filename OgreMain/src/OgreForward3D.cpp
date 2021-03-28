@@ -36,7 +36,7 @@ THE SOFTWARE.
 #include "Compositor/OgreCompositorShadowNode.h"
 
 #include "Vao/OgreVaoManager.h"
-#include "Vao/OgreTexBufferPacked.h"
+#include "Vao/OgreReadOnlyBufferPacked.h"
 
 #include "OgreHlms.h"
 
@@ -117,10 +117,10 @@ namespace Ogre
                                                        uint32 &outX, uint32 &outY ) const
     {
         const Resolution &res = mResolutionAtSlice[slice];
-        float fx = Math::saturate( projSpace.x ) * res.width;
-        float fy = Math::saturate( projSpace.y ) * res.height;
-        outX = static_cast<uint32>( Ogre::min( floorf( fx ), res.width - 1 ) );
-        outY = static_cast<uint32>( Ogre::min( floorf( fy ), res.height - 1 ) );
+        Real fx = Math::saturate( projSpace.x ) * res.width;
+        Real fy = Math::saturate( projSpace.y ) * res.height;
+        outX = static_cast<uint32>( std::min( std::floor( fx ), Real( res.width - 1 ) ) );
+        outY = static_cast<uint32>( std::min( std::floor( fy ), Real( res.height - 1 ) ) );
     }
     //-----------------------------------------------------------------------------------
     inline bool OrderLightByDistanceToCamera3D( const Light *left, const Light *right )
@@ -198,9 +198,8 @@ namespace Ogre
         if( !gridBuffers.gridBuffer )
         {
             const size_t p = -((1 - (1 << (mNumSlices << 1))) / 3);
-            gridBuffers.gridBuffer = mVaoManager->createTexBuffer( PFG_R16_UINT,
-                                                                   p * mTableSize * sizeof(uint16),
-                                                                   BT_DYNAMIC_PERSISTENT, 0, false );
+            gridBuffers.gridBuffer = mVaoManager->createTexBuffer(
+                PFG_R16_UINT, p * mTableSize * sizeof( uint16 ), BT_DYNAMIC_PERSISTENT, 0, false );
         }
 
         const size_t bufferBytesNeeded = calculateBytesNeeded( std::max<size_t>( numLights, 96u ),
@@ -213,13 +212,11 @@ namespace Ogre
             {
                 if( gridBuffers.globalLightListBuffer->getMappingState() != MS_UNMAPPED )
                     gridBuffers.globalLightListBuffer->unmap( UO_UNMAP_ALL );
-                mVaoManager->destroyTexBuffer( gridBuffers.globalLightListBuffer );
+                mVaoManager->destroyReadOnlyBuffer( gridBuffers.globalLightListBuffer );
             }
 
-            gridBuffers.globalLightListBuffer = mVaoManager->createTexBuffer(
-                                                                    PFG_RGBA32_FLOAT,
-                                                                    bufferBytesNeeded,
-                                                                    BT_DYNAMIC_PERSISTENT, 0, false );
+            gridBuffers.globalLightListBuffer = mVaoManager->createReadOnlyBuffer(
+                PFG_RGBA32_FLOAT, bufferBytesNeeded, BT_DYNAMIC_PERSISTENT, 0, false );
         }
 
         //Fill the first buffer with the light. The other buffer contains indexes into this list.
@@ -345,7 +342,7 @@ namespace Ogre
             {
                 //The end of this slice may go past beyond the back face of the AABB.
                 //Clamp to avoid overestimating the rectangle's area
-                const Real depthAtSlice = Ogre::min( lightSpaceMaxDepth, projSpaceSliceEnd[slice] );
+                const Real depthAtSlice = std::min( lightSpaceMaxDepth, projSpaceSliceEnd[slice] );
 
                 //Interpolate the back face
                 float fW = (depthAtSlice - lightSpaceMinDepth) * invLightSpaceDepthDist;
@@ -353,10 +350,10 @@ namespace Ogre
                 interpTR[1] = Math::lerp( topRight[0], topRight[1], fW );
 
                 //Find the rectangle that encloses both the front and back faces.
-                const Vector2 finalBL( Ogre::min( interpBL[0].x, interpBL[1].x ),
-                                       Ogre::min( interpBL[0].y, interpBL[1].y ) );
-                const Vector2 finalTR( Ogre::max( interpTR[0].x, interpTR[1].x ),
-                                       Ogre::max( interpTR[0].y, interpTR[1].y ) );
+                const Vector2 finalBL( std::min( interpBL[0].x, interpBL[1].x ),
+                                       std::min( interpBL[0].y, interpBL[1].y ) );
+                const Vector2 finalTR( std::max( interpTR[0].x, interpTR[1].x ),
+                                       std::max( interpTR[0].y, interpTR[1].y ) );
 
                 uint32 startX, startY, endX, endY;
                 projectionSpaceToGridSpace( finalBL, slice, startX, startY );

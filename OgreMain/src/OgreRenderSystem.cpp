@@ -44,17 +44,29 @@ THE SOFTWARE.
 #include "OgreHardwareOcclusionQuery.h"
 #include "OgreHlmsPso.h"
 #include "OgreTextureGpuManager.h"
+#include "OgreDescriptorSetUav.h"
 #include "OgreWindow.h"
 #include "Compositor/OgreCompositorManager2.h"
 #include "Vao/OgreVaoManager.h"
 #include "Vao/OgreVertexArrayObject.h"
+#include "Vao/OgreUavBufferPacked.h"
 #include "OgreProfiler.h"
 
 #include "OgreLwString.h"
 
+#if OGRE_NO_RENDERDOC_INTEGRATION == 0
+#    include "renderdoc/renderdoc_app.h"
+#    if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+#        define WIN32_LEAN_AND_MEAN
+#        define VC_EXTRALEAN
+#        define NOMINMAX
+#        include <Windows.h>
+#    endif
+#endif
+
 namespace Ogre {
 
-    RenderSystem::Listener* RenderSystem::msSharedEventListener = 0;
+    RenderSystem::ListenerList  RenderSystem::msSharedEventListeners;
     //-----------------------------------------------------------------------
     RenderSystem::RenderSystem()
         : mCurrentRenderPassDescriptor(0)
@@ -80,6 +92,7 @@ namespace Ogre {
         , mUavRenderingDescSet( 0 )
         , mGlobalInstanceVertexBufferVertexDeclaration(NULL)
         , mGlobalNumberOfInstances(1)
+        , mRenderDocApi(0)
         , mVertexProgramBound(false)
         , mGeometryProgramBound(false)
         , mFragmentProgramBound(false)
@@ -94,6 +107,7 @@ namespace Ogre {
         , mTexProjRelative(false)
         , mTexProjRelativeOrigin(Vector3::ZERO)
         , mReverseDepth(true)
+        , mInvertedClipSpaceY(false)
     {
         mEventNames.push_back("RenderSystemCapabilitiesCreated");
     }
@@ -264,13 +278,15 @@ namespace Ogre {
                 _setVertexTexture(texUnit, tex);
                 // bind nothing to fragment unit (hardware isn't shared but fragment
                 // unit can't be using the same index
-                _setTexture( texUnit, 0 );
+                _setTexture( texUnit, 0, false );
             }
             else
             {
                 // vice versa
                 _setVertexTexture(texUnit, 0);
-                _setTexture( texUnit, tex );
+                _setTexture( texUnit, tex,
+                             mCurrentRenderPassDescriptor->mDepth.texture &&
+                                 mCurrentRenderPassDescriptor->mDepth.texture == tex );
             }
         }
 
@@ -283,13 +299,15 @@ namespace Ogre {
                 _setGeometryTexture(texUnit, tex);
                 // bind nothing to fragment unit (hardware isn't shared but fragment
                 // unit can't be using the same index
-                _setTexture(texUnit, 0);
+                _setTexture(texUnit, 0, false);
             }
             else
             {
                 // vice versa
                 _setGeometryTexture(texUnit, 0);
-                _setTexture(texUnit, tex);
+                _setTexture( texUnit, tex,
+                             mCurrentRenderPassDescriptor->mDepth.texture &&
+                                 mCurrentRenderPassDescriptor->mDepth.texture == tex );
             }
         }
 
@@ -302,13 +320,15 @@ namespace Ogre {
                 _setTessellationDomainTexture(texUnit, tex);
                 // bind nothing to fragment unit (hardware isn't shared but fragment
                 // unit can't be using the same index
-                _setTexture(texUnit, 0);
+                _setTexture(texUnit, 0, false);
             }
             else
             {
                 // vice versa
                 _setTessellationDomainTexture(texUnit, 0);
-                _setTexture(texUnit, tex);
+                _setTexture( texUnit, tex,
+                             mCurrentRenderPassDescriptor->mDepth.texture &&
+                                 mCurrentRenderPassDescriptor->mDepth.texture == tex );
             }
         }
 
@@ -321,13 +341,15 @@ namespace Ogre {
                 _setTessellationHullTexture(texUnit, tex);
                 // bind nothing to fragment unit (hardware isn't shared but fragment
                 // unit can't be using the same index
-                _setTexture(texUnit, 0);
+                _setTexture(texUnit, 0, false);
             }
             else
             {
                 // vice versa
                 _setTessellationHullTexture(texUnit, 0);
-                _setTexture(texUnit, tex);
+                _setTexture( texUnit, tex,
+                             mCurrentRenderPassDescriptor->mDepth.texture &&
+                                 mCurrentRenderPassDescriptor->mDepth.texture == tex );
             }
         }
 
@@ -335,7 +357,9 @@ namespace Ogre {
         {
             // Shared vertex / fragment textures or no vertex texture support
             // Bind texture (may be blank)
-            _setTexture(texUnit, tex);
+            _setTexture( texUnit, tex,
+                         mCurrentRenderPassDescriptor->mDepth.texture &&
+                             mCurrentRenderPassDescriptor->mDepth.texture == tex );
         }
 
         _setHlmsSamplerblock( texUnit, tl.getSamplerblock() );
@@ -589,7 +613,7 @@ namespace Ogre {
         uint32 textureFlags = TextureFlags::RenderToTexture;
 
         if( !preferDepthTexture )
-            textureFlags |= TextureFlags::NotTexture;
+            textureFlags |= TextureFlags::NotTexture | TextureFlags::DiscardableContent;
 
         char tmpBuffer[64];
         LwString depthBufferName( LwString::FromEmptyPointer( tmpBuffer, sizeof(tmpBuffer) ) );
@@ -598,7 +622,7 @@ namespace Ogre {
         TextureGpu *retVal = mTextureGpuManager->createTexture( depthBufferName.c_str(),
                                                                 GpuPageOutStrategy::Discard,
                                                                 textureFlags, TextureTypes::Type2D );
-        retVal->setResolution( colourTexture->getWidth(), colourTexture->getHeight() );
+        retVal->setResolution( colourTexture->getInternalWidth(), colourTexture->getInternalHeight() );
         retVal->setPixelFormat( depthBufferFormat );
         retVal->_setDepthBufferDefaults( poolId, preferDepthTexture, depthBufferFormat );
         retVal->_setSourceType( TextureSourceType::SharedDepthBuffer );
@@ -688,6 +712,37 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------
+    BoundUav RenderSystem::getBoundUav( size_t slot ) const
+    {
+        BoundUav retVal;
+        memset( &retVal, 0, sizeof( retVal ) );
+        if( mUavRenderingDescSet )
+        {
+            if( slot < mUavRenderingDescSet->mUavs.size() )
+            {
+                if( mUavRenderingDescSet->mUavs[slot].isTexture() )
+                {
+                    retVal.rttOrBuffer = mUavRenderingDescSet->mUavs[slot].getTexture().texture;
+                    retVal.boundAccess = mUavRenderingDescSet->mUavs[slot].getTexture().access;
+                }
+                else
+                {
+                    retVal.rttOrBuffer = mUavRenderingDescSet->mUavs[slot].getBuffer().buffer;
+                    retVal.boundAccess = mUavRenderingDescSet->mUavs[slot].getBuffer().access;
+                }
+            }
+        }
+
+        return retVal;
+    }
+    //-----------------------------------------------------------------------
+    void RenderSystem::flushTextureCopyOperations( void )
+    {
+        mBarrierSolver.resetCopyLayoutsOnly( mFinalResourceTransition );
+        executeResourceTransition( mFinalResourceTransition );
+        mFinalResourceTransition.clear();
+    }
+    //-----------------------------------------------------------------------
     void RenderSystem::_beginFrameOnce(void)
     {
         mVaoManager->_beginFrame();
@@ -770,11 +825,11 @@ namespace Ogre {
     void RenderSystem::_resetMetrics()
     {
         const bool oldValue = mMetrics.mIsRecordingMetrics;
-        mMetrics = Metrics();
+        mMetrics = RenderingMetrics();
         mMetrics.mIsRecordingMetrics = oldValue;
     }
     //-----------------------------------------------------------------------
-    void RenderSystem::_addMetrics( const Metrics &newMetrics )
+    void RenderSystem::_addMetrics( const RenderingMetrics &newMetrics )
     {
         if( mMetrics.mIsRecordingMetrics )
         {
@@ -791,7 +846,7 @@ namespace Ogre {
         mMetrics.mIsRecordingMetrics = bEnable;
     }
     //-----------------------------------------------------------------------
-    const RenderSystem::Metrics& RenderSystem::getMetrics() const
+    const RenderingMetrics& RenderSystem::getMetrics() const
     {
         return mMetrics;
     }
@@ -993,29 +1048,24 @@ namespace Ogre {
     void RenderSystem::_render(const v1::RenderOperation& op)
     {
         // Update stats
-        size_t val;
-
-        if (op.useIndexes)
-            val = op.indexData->indexCount;
-        else
-            val = op.vertexData->vertexCount;
+        size_t primCount = op.useIndexes ? op.indexData->indexCount : op.vertexData->vertexCount;
 
         size_t trueInstanceNum = std::max<size_t>(op.numberOfInstances,1);
-        val *= trueInstanceNum;
+        primCount *= trueInstanceNum;
 
         // account for a pass having multiple iterations
         if (mCurrentPassIterationCount > 1)
-            val *= mCurrentPassIterationCount;
+            primCount *= mCurrentPassIterationCount;
         mCurrentPassIterationNum = 0;
 
         switch(op.operationType)
         {
         case OT_TRIANGLE_LIST:
-            mMetrics.mFaceCount += (val / 3u);
+            mMetrics.mFaceCount += (primCount / 3u);
             break;
         case OT_TRIANGLE_STRIP:
         case OT_TRIANGLE_FAN:
-            mMetrics.mFaceCount += (val - 2u);
+            mMetrics.mFaceCount += (primCount - 2u);
             break;
         case OT_POINT_LIST:
         case OT_LINE_LIST:
@@ -1155,15 +1205,14 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    void RenderSystem::setSharedListener(Listener* listener)
+    void RenderSystem::addSharedListener(Listener* l)
     {
-        assert(msSharedEventListener == NULL || listener == NULL); // you can set or reset, but for safety not directly override
-        msSharedEventListener = listener;
+        msSharedEventListeners.push_back(l);
     }
     //-----------------------------------------------------------------------
-    RenderSystem::Listener* RenderSystem::getSharedListener(void)
+    void RenderSystem::removeSharedListener(Listener* l)
     {
-        return msSharedEventListener;
+        msSharedEventListeners.remove(l);
     }
     //-----------------------------------------------------------------------
     void RenderSystem::addListener(Listener* l)
@@ -1183,10 +1232,25 @@ namespace Ogre {
         {
             (*i)->eventOccurred(name, params);
         }
-
-        if(msSharedEventListener)
-            msSharedEventListener->eventOccurred(name, params);
+        fireSharedEvent(name, params);
     }
+    //-----------------------------------------------------------------------
+    void RenderSystem::fireSharedEvent(const String& name, const NameValuePairList* params)
+    {
+        for(ListenerList::iterator i = msSharedEventListeners.begin(); 
+            i != msSharedEventListeners.end(); ++i)
+        {
+            (*i)->eventOccurred(name, params);
+        }
+    }
+    //-----------------------------------------------------------------------
+    const char* RenderSystem::getPriorityConfigOption( size_t ) const
+    {
+        OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, "idx must be < getNumPriorityConfigOptions()",
+                     "RenderSystem::getPriorityConfigOption" );
+    }
+    //-----------------------------------------------------------------------
+    size_t RenderSystem::getNumPriorityConfigOptions( void ) const { return 0u; }
     //-----------------------------------------------------------------------
     void RenderSystem::destroyHardwareOcclusionQuery( HardwareOcclusionQuery *hq)
     {
@@ -1242,6 +1306,11 @@ namespace Ogre {
     void RenderSystem::_update(void)
     {
         OgreProfile( "RenderSystem::_update" );
+
+        mBarrierSolver.reset( mFinalResourceTransition );
+        executeResourceTransition( mFinalResourceTransition );
+        mFinalResourceTransition.clear();
+
         mTextureGpuManager->_update( false );
         mVaoManager->_update();
     }
@@ -1303,6 +1372,71 @@ namespace Ogre {
         mGlobalInstanceVertexBufferVertexDeclaration = val;
     }
     //---------------------------------------------------------------------
+    bool RenderSystem::startGpuDebuggerFrameCapture( Window *window )
+    {
+        if( !mRenderDocApi )
+        {
+            loadRenderDocApi();
+            if( !mRenderDocApi )
+                return false;
+        }
+#if OGRE_NO_RENDERDOC_INTEGRATION == 0
+        RENDERDOC_DevicePointer device = 0;
+        RENDERDOC_WindowHandle windowHandle = 0;
+        if( window )
+        {
+            window->getCustomAttribute( "RENDERDOC_DEVICE", device );
+            window->getCustomAttribute( "RENDERDOC_WINDOW", windowHandle );
+        }
+        mRenderDocApi->StartFrameCapture( device, windowHandle );
+#endif
+        return true;
+    }
+    //---------------------------------------------------------------------
+    void RenderSystem::endGpuDebuggerFrameCapture( Window *window )
+    {
+        if( !mRenderDocApi )
+            return;
+#if OGRE_NO_RENDERDOC_INTEGRATION == 0
+        RENDERDOC_DevicePointer device = 0;
+        RENDERDOC_WindowHandle windowHandle = 0;
+        if( window )
+        {
+            window->getCustomAttribute( "RENDERDOC_DEVICE", device );
+            window->getCustomAttribute( "RENDERDOC_WINDOW", windowHandle );
+        }
+        mRenderDocApi->EndFrameCapture( device, windowHandle );
+#endif
+    }
+    //---------------------------------------------------------------------
+    bool RenderSystem::loadRenderDocApi( void )
+    {
+#if OGRE_NO_RENDERDOC_INTEGRATION == 0
+        if( mRenderDocApi )
+            return true;  // Already loaded
+
+#    if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
+        void *mod = dlopen( "librenderdoc.so", RTLD_NOW | RTLD_NOLOAD );
+        if( mod )
+        {
+            pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)dlsym( mod, "RENDERDOC_GetAPI" );
+            const int ret = RENDERDOC_GetAPI( eRENDERDOC_API_Version_1_4_1, (void **)&mRenderDocApi );
+            return ret == 1;
+        }
+#    elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32
+        HMODULE mod = GetModuleHandleA( "renderdoc.dll" );
+        if( mod )
+        {
+            pRENDERDOC_GetAPI RENDERDOC_GetAPI =
+                (pRENDERDOC_GetAPI)GetProcAddress( mod, "RENDERDOC_GetAPI" );
+            const int ret = RENDERDOC_GetAPI( eRENDERDOC_API_Version_1_4_1, (void **)&mRenderDocApi );
+            return ret == 1;
+        }
+#    endif
+#endif
+        return false;
+    }
+    //---------------------------------------------------------------------
     void RenderSystem::getCustomAttribute(const String& name, void* pData)
     {
         OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Attribute not found.", "RenderSystem::getCustomAttribute");
@@ -1313,19 +1447,18 @@ namespace Ogre {
         mDebugShaders = bDebugShaders;
     }
     //---------------------------------------------------------------------
+    bool RenderSystem::isSameLayout( ResourceLayout::Layout a, ResourceLayout::Layout b,
+                                     const TextureGpu *texture, bool bIsDebugCheck ) const
+    {
+        if( ( a != ResourceLayout::Uav && b != ResourceLayout::Uav ) || bIsDebugCheck )
+            return true;
+        return a == b;
+    }
+    //---------------------------------------------------------------------
     void RenderSystem::_clearStateAndFlushCommandBuffer(void)
     {
     }
     //---------------------------------------------------------------------
     RenderSystem::Listener::~Listener() {}
-    RenderSystem::Metrics::Metrics() :
-        mIsRecordingMetrics( false ),
-        mBatchCount( 0 ),
-        mFaceCount( 0 ),
-        mVertexCount( 0 ),
-        mDrawCount( 0 ),
-        mInstanceCount( 0 )
-    {
-    }
 }
 

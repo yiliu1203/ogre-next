@@ -99,7 +99,7 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void D3D11Window::getCustomAttribute( IdString name, void* pData )
     {
-        if( name == "D3DDEVICE" )
+        if( name == "D3DDEVICE" || name == "RENDERDOC_DEVICE" )
         {
             ID3D11DeviceN  **device = (ID3D11DeviceN**)pData;
             *device = mDevice.get();
@@ -201,6 +201,7 @@ namespace Ogre
         }
 
         _createSizeDependedD3DResources();
+        mClosed = false;
     }
     //---------------------------------------------------------------------
     void D3D11WindowSwapChainBased::destroy()

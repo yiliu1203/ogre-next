@@ -38,7 +38,7 @@ namespace Demo
         for( uint32 i=0; i<kernelRadius + 1u; ++i )
         {
             const float _X = i - fKernelRadius + ( 1.0f - 1.0f / stepSize );
-            float fWeight = 1.0f / sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
+            float fWeight = 1.0f / std::sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
             fWeight *= exp( - ( _X * _X ) / ( 2.0f * gaussianDeviation * gaussianDeviation ) );
 
             fWeightSum += fWeight;
@@ -70,7 +70,7 @@ namespace Demo
             }
         }
 
-        const bool bIsHlsl = job->getCreator()->getShaderProfile() == "hlsl";
+        const bool bIsMetal = job->getCreator()->getShaderProfile() == "metal";
 
         //Set the shader constants, 16 at a time (since that's the limit of what ManualParam can hold)
         char tmp[32];
@@ -79,7 +79,7 @@ namespace Demo
         for( uint32 i=0; i<kernelRadius + 1u; i += floatsPerParam )
         {
             weightsString.clear();
-            if( !bIsHlsl )
+            if( bIsMetal )
                 weightsString.a( "c_weights[", i, "]" );
             else
                 weightsString.a( "c_weights[", ( i >> 2u ), "]" );
@@ -179,7 +179,7 @@ namespace Demo
         for( uint32 i=0; i<kernelRadius + 1u; ++i )
         {
             const float _X = i - fKernelRadius + ( 1.0f - 1.0f / stepSize );
-            float fWeight = 1.0f / sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
+            float fWeight = 1.0f / std::sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
             fWeight *= exp( - ( _X * _X ) / ( 2.0f * gaussianDeviation * gaussianDeviation ) );
 
             fWeightSum += fWeight;

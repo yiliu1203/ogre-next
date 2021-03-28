@@ -26,8 +26,10 @@
   -----------------------------------------------------------------------------
 */
 
-#include "OgreGLXWindow.h"
 #include "OgreRoot.h"
+
+#include "OgreGLXWindow.h"
+
 #include "OgreGL3PlusRenderSystem.h"
 #include "OgreGL3PlusTextureGpuWindow.h"
 #include "OgreException.h"
@@ -825,6 +827,16 @@ namespace Ogre
         else if( name == "GLCONTEXT" )
         {
             *static_cast<GLXContext**>(pData) = mContext;
+            return;
+        }
+        else if( name == "RENDERDOC_DEVICE" )
+        {
+            *static_cast< ::GLXContext *>( pData ) = mContext->mContext;
+            return;
+        }
+        else if( name == "RENDERDOC_WINDOW" )
+        {
+            *static_cast< ::GLXDrawable *>( pData ) = mContext->mDrawable;
             return;
         }
         else if( name == "XDISPLAY" )

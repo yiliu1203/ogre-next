@@ -139,6 +139,28 @@ namespace Ogre
         }
     }
     //-----------------------------------------------------------------------------------
+    CompositorPassQuad::~CompositorPassQuad()
+    {
+        if( mPass )
+        {
+            //Reset the names of our material textures, so that material could be reloaded later
+            const CompositorPassQuadDef::TextureSources &textureSources =
+                                                                mDefinition->getTextureSources();
+            CompositorPassQuadDef::TextureSources::const_iterator itor = textureSources.begin();
+            CompositorPassQuadDef::TextureSources::const_iterator end  = textureSources.end();
+            while( itor != end )
+            {
+                if( itor->texUnitIdx < mPass->getNumTextureUnitStates() )
+                {
+                    TextureUnitState *tu = mPass->getTextureUnitState( itor->texUnitIdx );
+                    tu->setTextureName( "" );
+                }
+
+                ++itor;
+            }
+        }
+    }
+    //-----------------------------------------------------------------------------------
     void CompositorPassQuad::execute( const Camera *lodCamera )
     {
         //Execute a limited number of times?
@@ -189,6 +211,13 @@ namespace Ogre
             //The rectangle is shared, set the corners each time
             mFsRect->setCorners( 0.0f + hOffset, 0.0f - vOffset, 1.0f, 1.0f );
         }
+
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+        {
+            const OrientationMode orientationMode = mAnyTargetTexture->getOrientationMode();
+            mCamera->setOrientationMode( orientationMode );
+        }
+#endif
 
         const Quaternion oldCameraOrientation( mCamera->getOrientation() );
 
@@ -257,6 +286,7 @@ namespace Ogre
             mFsRect->setNormals( cameraDirs[0], cameraDirs[1], cameraDirs[2], cameraDirs[3] );
         }
 
+        analyzeBarriers();
         executeResourceTransitions();
 
         setRenderPassDescToCurrent();
@@ -295,4 +325,25 @@ namespace Ogre
 
         profilingEnd();
     }
-}
+    //-----------------------------------------------------------------------------------
+    void CompositorPassQuad::analyzeBarriers( void )
+    {
+        CompositorPass::analyzeBarriers();
+
+        if( mDefinition->mAnalyzeAllTextureLayouts && mMaterial )
+        {
+            const size_t numTexUnits = mPass->getNumTextureUnitStates();
+            for( size_t i = 0u; i < numTexUnits; ++i )
+            {
+                TextureUnitState *tuState = mPass->getTextureUnitState( i );
+                TextureGpu *texture = tuState->_getTexturePtr();
+
+                if( texture->isRenderToTexture() || texture->isUav() )
+                {
+                    resolveTransition( texture, ResourceLayout::Texture, ResourceAccess::Read,
+                                       c_allGraphicStagesMask );
+                }
+            }
+        }
+    }
+}  // namespace Ogre

@@ -39,12 +39,14 @@ THE SOFTWARE.
 
 namespace Ogre
 {
+    uint8 Renderable::msDefaultRenderQueueSubGroup = 0;
+    //-----------------------------------------------------------------------------------
     Renderable::Renderable() :
         mHlmsHash( 0 ),
         mHlmsCasterHash( 0 ),
         mHlmsDatablock( 0 ),
         mCustomParameter( 0 ),
-        mRenderQueueSubGroup( 0 ),
+        mRenderQueueSubGroup( msDefaultRenderQueueSubGroup ),
         mHasSkeletonAnimation( false ),
         mCurrentMaterialLod( 0 ),
         mLodMaterial( &MovableObject::c_DefaultLodMesh ),
@@ -77,7 +79,8 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     const String& Renderable::getDatablockOrMaterialName() const
     {
-        if( HlmsDatablock *datablock = getDatablock() )
+        HlmsDatablock* datablock = getDatablock();
+        if( datablock && datablock->getCreator()->getType() != HLMS_LOW_LEVEL )
             if( const String *nameStr = datablock->getNameStr() )  // could be null if leaked
                 return *nameStr;
 
@@ -170,7 +173,7 @@ namespace Ogre
         mHlmsHash       = hash;
         mHlmsCasterHash = casterHash;
 
-        assert( (mHlmsDatablock->getAlphaTest() == CMPF_ALWAYS_PASS ||
+        assert( (mHlmsDatablock == 0 || mHlmsDatablock->getAlphaTest() == CMPF_ALWAYS_PASS ||
                 mVaoPerLod[0].empty() || mVaoPerLod[0][0] == mVaoPerLod[1][0])
                 && "v2 objects must overload _setHlmsHashes to disable special "
                 "shadow mapping buffers on objects with alpha testing materials" );
@@ -262,7 +265,7 @@ namespace Ogre
         mPoseData->weights[index] += w;
     }
     //-----------------------------------------------------------------------------------
-    TexBufferPacked* Renderable::getPoseTexBuffer(void) const
+    TexBufferPacked *Renderable::getPoseTexBuffer( void ) const
     {
         return mPoseData ? mPoseData->buffer : 0;
     }

@@ -40,9 +40,6 @@ THE SOFTWARE.
 #include "OgreGLES2VertexArrayObject.h"
 #include "OgreGLSLESShaderFactory.h"
 #include "OgreFrustum.h"
-#if !OGRE_NO_GLES2_CG_SUPPORT
-#include "OgreGLSLESCgProgramFactory.h"
-#endif
 #include "OgreGLSLESLinkProgram.h"
 #include "OgreGLSLESLinkProgramManager.h"
 #include "OgreGLSLESProgramPipelineManager.h"
@@ -415,12 +412,6 @@ namespace Ogre {
         rsc->addShaderProfile("glsles");
         LogManager::getSingleton().logMessage("GLSL ES support detected");
 
-#if !OGRE_NO_GLES2_CG_SUPPORT
-        rsc->addShaderProfile("cg");
-        rsc->addShaderProfile("ps_2_0");
-        rsc->addShaderProfile("vs_2_0");
-#endif
-
         // Vertex/Fragment Programs
         rsc->setCapability(RSC_VERTEX_PROGRAM);
         rsc->setCapability(RSC_FRAGMENT_PROGRAM);
@@ -502,11 +493,6 @@ namespace Ogre {
         mGLSLESShaderFactory = OGRE_NEW GLSLESShaderFactory();
         HighLevelGpuProgramManager::getSingleton().addFactory(mGLSLESShaderFactory);
 
-#if !OGRE_NO_GLES2_CG_SUPPORT
-        mGLSLESCgProgramFactory = OGRE_NEW GLSLESCgProgramFactory();
-        HighLevelGpuProgramManager::getSingleton().addFactory(mGLSLESCgProgramFactory);
-#endif
-
         // Set texture the number of texture units
         mFixedFunctionTextureUnits = caps->getNumTextureUnits();
 
@@ -545,17 +531,6 @@ namespace Ogre {
             mGLSLESShaderFactory = 0;
         }
 
-#if !OGRE_NO_GLES2_CG_SUPPORT
-        // Deleting the GLSL program factory
-        if (mGLSLESCgProgramFactory)
-        {
-            // Remove from manager safely
-            if (HighLevelGpuProgramManager::getSingletonPtr())
-                HighLevelGpuProgramManager::getSingleton().removeFactory(mGLSLESCgProgramFactory);
-            OGRE_DELETE mGLSLESCgProgramFactory;
-            mGLSLESCgProgramFactory = 0;
-        }
-#endif
         // Deleting the GPU program manager and hardware buffer manager.  Has to be done before the mGLSupport->stop().
         OGRE_DELETE mGpuProgramManager;
         mGpuProgramManager = 0;
@@ -876,7 +851,7 @@ namespace Ogre {
             mClipPlanesDirty = true;
     }
 
-    void GLES2RenderSystem::_setTexture(size_t stage, bool enabled, Texture *texPtr)
+    void GLES2RenderSystem::_setTexture(size_t stage, bool enabled, Texture *texPtr, bool bDepthReadOnly)
     {
         GLES2Texture *tex = static_cast<GLES2Texture*>(texPtr);
 
@@ -936,10 +911,6 @@ namespace Ogre {
     {
     }
 
-    void GLES2RenderSystem::flushUAVs(void)
-    {
-    }
-
     void GLES2RenderSystem::_bindTextureUavCS( uint32 slot, Texture *texture,
                                                ResourceAccess::ResourceAccess _access,
                                                int32 mipmapLevel, int32 textureArrayIndex,
@@ -949,7 +920,7 @@ namespace Ogre {
 
     void GLES2RenderSystem::_setTextureCS( uint32 slot, bool enabled, Texture *texPtr )
     {
-        this->_setTexture( slot, enabled, texPtr );
+        this->_setTexture( slot, enabled, texPtr, false );
     }
 
     void GLES2RenderSystem::_setHlmsSamplerblockCS( uint8 texUnit, const HlmsSamplerblock *samplerblock )

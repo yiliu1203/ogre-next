@@ -64,16 +64,12 @@ namespace Ogre
 
             bool operator < ( const CachedDepthStencilState &other ) const
             {
-                if(   this->depthWrite < other.depthWrite  ) return true;
-                if( !(this->depthWrite < other.depthWrite) ) return false;
+                if( this->depthWrite != other.depthWrite )
+                    return this->depthWrite < other.depthWrite;
+                if( this->depthFunc != other.depthFunc )
+                    return this->depthFunc < other.depthFunc;
 
-                if(   this->depthFunc < other.depthFunc  ) return true;
-                if( !(this->depthFunc < other.depthFunc) ) return false;
-
-                if(   this->stencilParams < other.stencilParams  ) return true;
-                //if( !(this->stencilParams < other.stencilParams) ) return false;
-
-                return false;
+                return this->stencilParams < other.stencilParams;
             }
 
             bool operator != ( const CachedDepthStencilState &other ) const
@@ -188,9 +184,9 @@ namespace Ogre
         virtual void _setPointParameters(Real size, bool attenuationEnabled,
             Real constant, Real linear, Real quadratic, Real minSize, Real maxSize);
 
-        virtual void flushUAVs(void);
+        void flushUAVs( void );
 
-        virtual void _setTexture( size_t unit, TextureGpu *texPtr );
+        virtual void _setTexture( size_t unit, TextureGpu *texPtr, bool bDepthReadOnly );
         virtual void _setTextures( uint32 slotStart, const DescriptorSetTexture *set,
                                    uint32 hazardousTexIdx );
         virtual void _setTextures( uint32 slotStart, const DescriptorSetTexture2 *set );

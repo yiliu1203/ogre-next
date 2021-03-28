@@ -8,6 +8,7 @@
 
 #include "OgreMeshManager.h"
 #include "OgreMeshManager2.h"
+#include "OgreMesh.h"
 #include "OgreMesh2.h"
 
 #include "OgreCamera.h"
@@ -534,6 +535,7 @@ namespace Demo
                 texDef->width   = 0;
                 texDef->height  = 0;
                 texDef->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+                texDef->textureFlags &= (uint32)~TextureFlags::DiscardableContent;
 
                 RenderTargetViewDef *rtv = motionBlurDef->addRenderTextureView( "sum" );
                 RenderTargetViewEntry attachment;

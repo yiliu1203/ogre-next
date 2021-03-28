@@ -33,6 +33,9 @@
 
 #define inVs_vertexId input.vertexId
 #define inVs_vertex input.vertex
+#define inVs_normal input.normal
+#define inVs_tangent input.tangent
+#define inVs_binormal input.binormal
 #define inVs_blendWeights input.blendWeights
 #define inVs_blendIndices input.blendIndices
 #define inVs_qtangent input.qtangent
@@ -79,6 +82,16 @@
 #define bufferFetch1( buffer, idx ) buffer.Load( idx ).x
 
 #define structuredBufferFetch( buffer, idx ) buffer[idx]
+
+@property( hlms_readonly_is_tex )
+	#define ReadOnlyBuffer( slot, varType, varName ) Buffer<varType> varName : register(t##slot)
+	#define readOnlyFetch( buffer, idx ) buffer.Load( idx )
+	#define readOnlyFetch1( buffer, idx ) buffer.Load( idx ).x
+@else
+	#define ReadOnlyBuffer( slot, varType, varName ) StructuredBuffer<varType> varName : register(t##slot)
+	#define readOnlyFetch( bufferVar, idx ) bufferVar[idx]
+	#define readOnlyFetch1( bufferVar, idx ) bufferVar[idx].x
+@end
 
 #define OGRE_Texture3D_float4 Texture3D
 

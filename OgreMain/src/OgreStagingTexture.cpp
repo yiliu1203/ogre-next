@@ -117,8 +117,8 @@ namespace Ogre
 #if OGRE_DEBUG_MODE
         mUserQueriedIfUploadWillStall = false;
 #endif
-        const TextureBox fullDstTextureBox( std::max( 1u, dstTexture->getWidth() >> mipLevel ),
-                                            std::max( 1u, dstTexture->getHeight() >> mipLevel ),
+        const TextureBox fullDstTextureBox( std::max( 1u, dstTexture->getInternalWidth() >> mipLevel ),
+                                            std::max( 1u, dstTexture->getInternalHeight() >> mipLevel ),
                                             std::max( 1u, dstTexture->getDepth() >> mipLevel ),
                                             dstTexture->getNumSlices(),
                                             PixelFormatGpuUtils::getBytesPerPixel(
@@ -126,7 +126,7 @@ namespace Ogre
                                             dstTexture->_getSysRamCopyBytesPerRow( mipLevel ),
                                             dstTexture->_getSysRamCopyBytesPerImage( mipLevel ) );
 
-        assert( !dstBox || srcBox.equalSize( *dstBox ) && "Src & Dst must be equal" );
+        assert( ( !dstBox || srcBox.equalSize( *dstBox ) ) && "Src & Dst must be equal" );
         assert( !dstBox || fullDstTextureBox.fullyContains( *dstBox ) );
         assert( mipLevel < dstTexture->getNumMipmaps() );
         assert(( !srcBox.bytesPerRow || (srcBox.bytesPerImage % srcBox.bytesPerRow) == 0) &&
@@ -173,12 +173,16 @@ namespace Ogre
                 dstSysRamBox = dstTexture->_getSysRamCopyAsBox( mipLevel );
             else
             {
+                const PixelFormatGpu pixelFormat = dstTexture->getPixelFormat();
+
                 dstSysRamBox = *dstBox;
                 dstSysRamBox.data = sysRamCopyBase;
-                dstSysRamBox.bytesPerPixel =
-                        PixelFormatGpuUtils::getBytesPerPixel( dstTexture->getPixelFormat() );
+                dstSysRamBox.bytesPerPixel = PixelFormatGpuUtils::getBytesPerPixel( pixelFormat );
                 dstSysRamBox.bytesPerRow = dstTexture->_getSysRamCopyBytesPerRow( mipLevel );
                 dstSysRamBox.bytesPerImage = dstTexture->_getSysRamCopyBytesPerImage( mipLevel );
+
+                if( PixelFormatGpuUtils::isCompressed( pixelFormat ) )
+                    dstSysRamBox.setCompressedPixelFormat( pixelFormat );
             }
 
             dstSysRamBox.copyFrom( *cpuSrcBox );

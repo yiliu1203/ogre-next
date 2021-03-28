@@ -175,11 +175,23 @@ namespace Ogre
         hlmsManager->destroySamplerblock( mSamplerblockPoint );
         mSamplerblockPoint = 0;
 
+        _releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::_releaseManualHardwareResources()
+    {
         if( mStagingBuffer )
         {
             mStagingBuffer->removeReferenceCount();
             mStagingBuffer = 0;
         }
+
+        ParallaxCorrectedCubemapBase::_releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::_restoreManualHardwareResources()
+    {
+        ParallaxCorrectedCubemapBase::_restoreManualHardwareResources();
     }
     //-----------------------------------------------------------------------------------
     void ParallaxCorrectedCubemap::destroyAllProbes(void)
@@ -299,7 +311,7 @@ namespace Ogre
         }
         else
         {
-            destroyCompositorData();
+            destroyCubemapBlendWorkspace();
 
             CompositorManager2 *compositorManager = mDefaultWorkspaceDef->getCompositorManager();
             compositorManager->removeListener( this );
@@ -313,8 +325,10 @@ namespace Ogre
         return mBlendWorkspace != 0;
     }
     //-----------------------------------------------------------------------------------
-    void ParallaxCorrectedCubemap::createProxyGeometry(void)
+    void ParallaxCorrectedCubemap::loadResource( Resource *resource )
     {
+        Mesh *mesh = static_cast<Mesh*>( resource );
+
         //Create the mesh geometry
         const Vector3 c_vertices[8] =
         {
@@ -345,19 +359,22 @@ namespace Ogre
         IndexBufferPacked *indexBuffer = vaoManager->createIndexBuffer( IndexBufferPacked::IT_16BIT,
                                                                         3 * 2 * 6, BT_IMMUTABLE,
                                                                         (void*)c_indexData, false );
-
         VertexBufferPackedVec vertexBuffers( 1, vertexBuffer );
         VertexArrayObject *vao = vaoManager->createVertexArrayObject( vertexBuffers, indexBuffer,
                                                                       OT_TRIANGLE_LIST );
-        mProxyMesh = MeshManager::getSingleton().createManual(
-                    "AutoGen_ParallaxCorrectedCubemap_" + StringConverter::toString( getId() ) +
-                    "_Proxy", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-        mProxyMesh->_setBounds( Aabb( Vector3::ZERO, Vector3::UNIT_SCALE ) );
-
-        SubMesh *subMesh = mProxyMesh->createSubMesh();
+        SubMesh *subMesh = mesh->createSubMesh();
         for( int i=0; i<NumVertexPass; ++i )
             subMesh->mVao[i].push_back( vao );
         subMesh->mMaterialName = "Cubemap/BlendProjectCubemap0";
+
+        mesh->_setBounds( Aabb( Vector3::ZERO, Vector3::UNIT_SCALE ) );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::createProxyGeometry(void)
+    {
+        mProxyMesh = MeshManager::getSingleton().createManual(
+                    "AutoGen_ParallaxCorrectedCubemap_" + StringConverter::toString( getId() ) +
+                    "_Proxy", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, this );
 
         RenderQueue *renderQueue = mSceneManager->getRenderQueue();
         renderQueue->setRenderQueueMode( mReservedRqId, RenderQueue::FAST );
@@ -446,6 +463,7 @@ namespace Ogre
                         materialName.a( cSuffixes[i] );
                         passQuad->mIdentifier = 10u + i;
                         passQuad->mMaterialName = materialName.c_str();
+                        passQuad->mAnalyzeAllTextureLayouts = true;
 
                         passQuad->mLoadActionColour[0]  = LoadAction::Clear;
                         passQuad->mClearColour[0]       = ColourValue::Black;
@@ -519,10 +537,15 @@ namespace Ogre
         mCopyWorkspace->addListener( this );
     }
     //-----------------------------------------------------------------------------------
-    void ParallaxCorrectedCubemap::destroyCompositorData(void)
+    void ParallaxCorrectedCubemap::destroyCubemapBlendWorkspace(void)
     {
-        mBlendWorkspace->removeListener( this );
         CompositorManager2 *compositorManager = mDefaultWorkspaceDef->getCompositorManager();
+
+        mCopyWorkspace->removeListener( this );
+        compositorManager->removeWorkspace( mCopyWorkspace );
+        mCopyWorkspace = 0;
+
+        mBlendWorkspace->removeListener( this );
         compositorManager->removeWorkspace( mBlendWorkspace );
         mBlendWorkspace = 0;
 
@@ -675,7 +698,7 @@ namespace Ogre
                 {
                     Vector4 transformedVert( probe->mOrientation * corners[i] );
                     transformedVert = viewProjMatrix * transformedVert;
-                    transformedVert.w = Ogre::max( transformedVert.w, Real(1e-6f) );
+                    transformedVert.w = std::max( transformedVert.w, Real(1e-6f) );
                     transformedVert /= transformedVert.w;
 
                     Vector3 psVertex( transformedVert.ptr() );
@@ -827,8 +850,8 @@ namespace Ogre
             mProxyItems[i]->setVisible( i < mNumCollectedProbes );
 
             //Divide by maxComponent to get better precision in the GPU.
-            const Real maxComponent = Ogre::max( mCollectedProbes[i]->mProbeShape.mHalfSize.x,
-                                                 Ogre::max(
+            const Real maxComponent = std::max( mCollectedProbes[i]->mProbeShape.mHalfSize.x,
+                                                 std::max(
                                                      mCollectedProbes[i]->mProbeShape.mHalfSize.y,
                                                      mCollectedProbes[i]->mProbeShape.mHalfSize.z ) );
             Matrix4 worldScaledMatrix;
@@ -905,6 +928,7 @@ namespace Ogre
                         if( j == 0 )
                             mCollectedProbes[i]->_clearCubemap();
                         mCopyWorkspace->_update();
+                        transitionBlendResultToTexture();
                         mCollectedProbes[i]->_updateRender();
                     mCopyWorkspace->_endUpdate( true );
 
@@ -918,6 +942,8 @@ namespace Ogre
                 mBlendedProbeNeedsUpdate = true;
             }
         }
+
+        transitionCollectedProbesToTexture();
 
         mSceneManager->setVisibilityMask( oldVisibilityMask );
     }
@@ -938,6 +964,7 @@ namespace Ogre
                 for( int j=0; j<mCollectedProbes[i]->mNumIterations; ++j )
                 {
                     mCopyWorkspace->_update();
+                    transitionBlendResultToTexture();
                     mCollectedProbes[i]->_updateRender();
                     mCurrentMip = 0;
                 }
@@ -946,6 +973,8 @@ namespace Ogre
                 mBlendedProbeNeedsUpdate = true;
             }
         }
+
+        transitionCollectedProbesToTexture();
 
         setFinalProbeTo( 0 );
 
@@ -985,9 +1014,38 @@ namespace Ogre
                 mCopyWorkspace->_update();
             else if( mNumCollectedProbes > 1u )
                 mBlendWorkspace->_update();
+            transitionBlendResultToTexture();
         }
 
         mSceneManager->setVisibilityMask( oldVisibilityMask );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::transitionBlendResultToTexture( void )
+    {
+        RenderSystem *renderSystem = mSceneManager->getDestinationRenderSystem();
+        BarrierSolver &solver = renderSystem->getBarrierSolver();
+
+        ResourceTransitionArray &barrier = solver.getNewResourceTransitionsArrayTmp();
+        solver.resolveTransition( barrier, mBindTexture, ResourceLayout::Texture, ResourceAccess::Read,
+                                  1u << GPT_FRAGMENT_PROGRAM );
+        renderSystem->executeResourceTransition( barrier );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::transitionCollectedProbesToTexture( void )
+    {
+        RenderSystem *renderSystem = mSceneManager->getDestinationRenderSystem();
+        BarrierSolver &solver = renderSystem->getBarrierSolver();
+
+        ResourceTransitionArray &barrier = solver.getNewResourceTransitionsArrayTmp();
+
+        const size_t numCollectedProbes = mNumCollectedProbes;
+        for( size_t i = 0u; i < numCollectedProbes; ++i )
+        {
+            solver.resolveTransition( barrier, mCollectedProbes[i]->mTexture, ResourceLayout::Texture,
+                                      ResourceAccess::Read, 1u << GPT_FRAGMENT_PROGRAM );
+        }
+
+        renderSystem->executeResourceTransition( barrier );
     }
     //-----------------------------------------------------------------------------------
     void ParallaxCorrectedCubemap::updateAllDirtyProbes(void)

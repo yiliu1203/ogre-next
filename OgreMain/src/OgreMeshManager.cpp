@@ -35,6 +35,7 @@ THE SOFTWARE.
 #include "OgrePatchMesh.h"
 #include "OgreHardwareBufferManager.h"
 #include "OgreException.h"
+#include "OgreVertexRemapping.h"
 
 #include "OgrePrefabFactory.h"
 
@@ -267,7 +268,7 @@ namespace v1
     }
 
     //-----------------------------------------------------------------------
-    void MeshManager::tesselate2DMesh(SubMesh* sm, unsigned short meshWidth, unsigned short meshHeight, 
+    void MeshManager::tesselate2DMesh(Mesh* pMesh, SubMesh* sm, unsigned short meshWidth, unsigned short meshHeight,
         bool doubleSided, HardwareBuffer::Usage indexBufferUsage, bool indexShadowBuffer)
     {
         // The mesh is built, just make a list of indexes to spit out the triangles
@@ -289,9 +290,9 @@ namespace v1
         // Allocate memory for faces
         // Num faces, width*height*2 (2 tris per square), index count is * 3 on top
         sm->indexData[VpNormal]->indexCount = (meshWidth-1) * (meshHeight-1) * 2 * iterations * 3;
-        sm->indexData[VpNormal]->indexBuffer = HardwareBufferManager::getSingleton().
-            createIndexBuffer(HardwareIndexBuffer::IT_16BIT,
-            sm->indexData[VpNormal]->indexCount, indexBufferUsage, indexShadowBuffer);
+        sm->indexData[VpNormal]->indexBuffer = pMesh->getHardwareBufferManager()->createIndexBuffer(
+            HardwareIndexBuffer::IT_16BIT, sm->indexData[VpNormal]->indexCount, indexBufferUsage,
+            indexShadowBuffer );
 
         unsigned short v1, v2, v3;
         //bool firstTri = true;
@@ -449,7 +450,7 @@ namespace v1
 
         // Set up vertex data
         // Use a single shared buffer
-        pSub->vertexData[VpNormal] = OGRE_NEW VertexData();
+        pSub->vertexData[VpNormal] = OGRE_NEW VertexData(pMesh->getHardwareBufferManager());
         VertexData* vertexData = pSub->vertexData[VpNormal];
         // Set up Vertex Declaration
         VertexDeclaration* vertexDecl = vertexData->vertexDeclaration;
@@ -554,7 +555,7 @@ namespace v1
                 {
                     min.makeFloor(vec);
                     max.makeCeil(vec);
-                    maxSquaredLength = Ogre::max(maxSquaredLength, vec.squaredLength());
+                    maxSquaredLength = std::max(maxSquaredLength, vec.squaredLength());
                 }
 
                 if (params.normals)
@@ -583,7 +584,7 @@ namespace v1
         vbufLock.unlock();
         // Generate face list
         pSub->useSharedVertices = false;
-        tesselate2DMesh(pSub, params.xsegments + 1, params.ysegments + 1, false, 
+        tesselate2DMesh(pMesh, pSub, params.xsegments + 1, params.ysegments + 1, false,
             params.indexBufferUsage, params.indexShadowBuffer);
 
         pMesh->_setBounds(AxisAlignedBox(min, max), true);
@@ -599,7 +600,7 @@ namespace v1
         SubMesh *pSub = pMesh->createSubMesh();
 
         // Set options
-        pSub->vertexData[VpNormal] = OGRE_NEW VertexData();
+        pSub->vertexData[VpNormal] = OGRE_NEW VertexData(pMesh->getHardwareBufferManager());
         VertexData* vertexData = pSub->vertexData[VpNormal];
         vertexData->vertexStart = 0;
         VertexBufferBinding* bind = vertexData->vertexBufferBinding;
@@ -687,8 +688,8 @@ namespace v1
                 // Here's where curved plane is different from standard plane.  Amazing, I know.
                 diff_x = (x - ((params.xsegments) / 2)) / static_cast<Real>((params.xsegments));
                 diff_y = (y - ((params.ysegments) / 2)) / static_cast<Real>((params.ysegments));
-                dist = sqrt(diff_x*diff_x + diff_y * diff_y );
-                vec.z = (-sin((1-dist) * (Math::PI/2)) * params.curvature) + params.curvature;
+                dist = std::sqrt(diff_x*diff_x + diff_y * diff_y );
+                vec.z = (-std::sin((1-dist) * (Math::PI/2)) * params.curvature) + params.curvature;
 
                 // Transform by orientation and distance
                 Vector3 pos = xform.transformAffine(vec);
@@ -708,7 +709,7 @@ namespace v1
                 {
                     min.makeFloor(vec);
                     max.makeCeil(vec);
-                    maxSqLen = Ogre::max(maxSqLen, vec.squaredLength());
+                    maxSqLen = std::max(maxSqLen, vec.squaredLength());
                 }
 
                 if (params.normals)
@@ -740,7 +741,7 @@ namespace v1
 
         // Generate face list
         pSub->useSharedVertices = false;
-        tesselate2DMesh(pSub, params.xsegments + 1, params.ysegments + 1, 
+        tesselate2DMesh(pMesh, pSub, params.xsegments + 1, params.ysegments + 1,
             false, params.indexBufferUsage, params.indexShadowBuffer);
 
         pMesh->_setBounds(AxisAlignedBox(min, max), true);
@@ -761,7 +762,7 @@ namespace v1
 
         // Set up vertex data
         // Use a single shared buffer
-        pSub->vertexData[VpNormal] = OGRE_NEW VertexData();
+        pSub->vertexData[VpNormal] = OGRE_NEW VertexData(pMesh->getHardwareBufferManager());
         VertexData* vertexData = pSub->vertexData[VpNormal];
         // Set up Vertex Declaration
         VertexDeclaration* vertexDecl = vertexData->vertexDeclaration;
@@ -882,7 +883,7 @@ namespace v1
                 {
                     min.makeFloor(vec);
                     max.makeCeil(vec);
-                    maxSquaredLength = Ogre::max(maxSquaredLength, vec.squaredLength());
+                    maxSquaredLength = std::max(maxSquaredLength, vec.squaredLength());
                 }
 
                 if (params.normals)
@@ -925,7 +926,7 @@ namespace v1
         vbufLock.unlock();
         // Generate face list
         pSub->useSharedVertices = false;
-        tesselate2DMesh(pSub, params.xsegments + 1, params.ySegmentsToKeep + 1, false, 
+        tesselate2DMesh(pMesh, pSub, params.xsegments + 1, params.ySegmentsToKeep + 1, false,
             params.indexBufferUsage, params.indexShadowBuffer);
 
         pMesh->_setBounds(AxisAlignedBox(min, max), true);
@@ -984,48 +985,6 @@ namespace v1
         mBoundsPaddingFactor = paddingFactor;
     }
     //-----------------------------------------------------------------------
-    //-----------------------------------------------------------------------
-    // Helper functions to unshare the vertices
-    //-----------------------------------------------------------------------
-    typedef map<uint32, uint32>::type IndicesMap;
-
-    template< typename TIndexType >
-    IndicesMap getUsedIndices(IndexData* idxData)
-    {
-        HardwareBufferLockGuard indexLock(
-            idxData->indexBuffer, idxData->indexStart * sizeof( TIndexType ),
-            idxData->indexCount * sizeof( TIndexType ), HardwareBuffer::HBL_READ_ONLY );
-
-        TIndexType *data = (TIndexType*)indexLock.pData;
-
-        IndicesMap indicesMap;
-        for (size_t i = 0; i < idxData->indexCount; i++)
-        {
-            TIndexType index = data[i];
-            if (indicesMap.find(index) == indicesMap.end())
-            {
-                uint32 val = (uint32)(indicesMap.size());
-                indicesMap[index] = val;
-            }
-        }
-
-        return indicesMap;
-    }
-    //-----------------------------------------------------------------------
-    template< typename TIndexType >
-    void copyIndexBuffer(IndexData* idxData, IndicesMap& indicesMap)
-    {
-        HardwareBufferLockGuard indexLock(
-            idxData->indexBuffer, idxData->indexStart * sizeof( TIndexType ),
-            idxData->indexCount * sizeof( TIndexType ), HardwareBuffer::HBL_NORMAL );
-        TIndexType *data = (TIndexType*)indexLock.pData;
-
-        for (uint32 i = 0; i < idxData->indexCount; i++)
-        {
-            data[i] = (TIndexType)indicesMap[data[i]];
-        }
-    }
-    //-----------------------------------------------------------------------
     void MeshManager::unshareVertices( Mesh *mesh )
     {
         // Retrieve data to copy bone assignments
@@ -1033,74 +992,51 @@ namespace v1
 
         // Access shared vertices
         VertexData* sharedVertexData = mesh->sharedVertexData[VpNormal];
+        if (!sharedVertexData)
+            return;
 
+        VerticesRemapInfo remapInfo;
         for (size_t subMeshIdx = 0; subMeshIdx < mesh->getNumSubMeshes(); subMeshIdx++)
         {
             SubMesh *subMesh = mesh->getSubMesh(subMeshIdx);
+            if (!subMesh->useSharedVertices)
+                continue;
 
             IndexData *indexData = subMesh->indexData[VpNormal];
-            HardwareIndexBuffer::IndexType idxType = indexData->indexBuffer->getType();
-            IndicesMap indicesMap = (idxType == HardwareIndexBuffer::IT_16BIT) ? getUsedIndices<uint16>(indexData) :
-                                                                                 getUsedIndices<uint32>(indexData);
+            if (!indexData)
+                continue;
 
+            remapInfo.initialize( sharedVertexData->vertexCount, false );
+            remapInfo.markUsedIndices( indexData );
 
-            VertexData *newVertexData = new VertexData();
-            newVertexData->vertexCount = indicesMap.size();
-            HardwareBufferManager::getSingleton().
-                    destroyVertexDeclaration( newVertexData->vertexDeclaration );
+            VertexData *newVertexData = new VertexData(mesh->getHardwareBufferManager());
+            newVertexData->vertexCount = remapInfo.usedCount;
+            mesh->getHardwareBufferManager()->destroyVertexDeclaration(newVertexData->vertexDeclaration);
             newVertexData->vertexDeclaration = sharedVertexData->vertexDeclaration->clone(mesh->getHardwareBufferManager());
 
             for (size_t bufIdx = 0; bufIdx < sharedVertexData->vertexBufferBinding->getBufferCount(); bufIdx++)
             {
                 HardwareVertexBufferSharedPtr sharedVertexBuffer = sharedVertexData->vertexBufferBinding->getBuffer(bufIdx);
-                size_t vertexSize = sharedVertexBuffer->getVertexSize();
-
-                HardwareVertexBufferSharedPtr newVertexBuffer = mesh->getHardwareBufferManager()->createVertexBuffer
-                    (vertexSize, newVertexData->vertexCount, sharedVertexBuffer->getUsage(), sharedVertexBuffer->hasShadowBuffer());
-
-                HardwareBufferLockGuard oldLock(sharedVertexBuffer, 0, sharedVertexData->vertexCount * vertexSize, HardwareBuffer::HBL_READ_ONLY);
-                HardwareBufferLockGuard newLock(newVertexBuffer, 0, newVertexData->vertexCount * vertexSize, HardwareBuffer::HBL_NORMAL);
-
-                IndicesMap::iterator indIt = indicesMap.begin();
-                IndicesMap::iterator endIndIt = indicesMap.end();
-                for (; indIt != endIndIt; ++indIt)
-                {
-                    memcpy((uint8*)newLock.pData + vertexSize * indIt->second, (uint8*)oldLock.pData + vertexSize * indIt->first, vertexSize);
-                }
+                HardwareVertexBufferSharedPtr newVertexBuffer = remapInfo.getRemappedVertexBuffer(
+                    mesh->getHardwareBufferManager(), sharedVertexBuffer, sharedVertexData->vertexStart, sharedVertexData->vertexCount );
 
                 newVertexData->vertexBufferBinding->setBinding(bufIdx, newVertexBuffer);
             }
 
-            if (idxType == HardwareIndexBuffer::IT_16BIT)
+            ushort numLods = mesh->hasManualLodLevel() ? 1 : mesh->getNumLodLevels();
+            for (ushort lod = 1; lod < numLods; ++lod)
             {
-                copyIndexBuffer<uint16>(indexData, indicesMap);
+                v1::IndexData *lodIndexData = subMesh->mLodFaceList[VpNormal][lod - 1]; // lod0 is stored separately
+                remapInfo.performIndexDataRemap(mesh->getHardwareBufferManager(), lodIndexData);
             }
-            else
-            {
-                copyIndexBuffer<uint32>(indexData, indicesMap);
-            }
+            remapInfo.performIndexDataRemap(mesh->getHardwareBufferManager(), indexData);
 
             // Store new attributes
             subMesh->useSharedVertices = false;
             subMesh->vertexData[VpNormal] = newVertexData;
 
             // Transfer bone assignments to the submesh
-            Mesh::VertexBoneAssignmentList::const_iterator itor = boneAssignments.begin();
-            Mesh::VertexBoneAssignmentList::const_iterator end  = boneAssignments.end();
-            IndicesMap::const_iterator enVertIdx = indicesMap.end();
-            while( itor != end )
-            {
-                VertexBoneAssignment boneAssignment = (*itor).second;
-                IndicesMap::const_iterator itVertIdx = indicesMap.find( boneAssignment.vertexIndex );
-
-                if( itVertIdx != enVertIdx )
-                {
-                    boneAssignment.vertexIndex = itVertIdx->second;
-                    subMesh->addBoneAssignment(boneAssignment);
-                }
-
-                ++itor;
-            }
+            remapInfo.performBoneAssignmentRemap(subMesh, mesh);
         }
 
         // Release shared vertex data
@@ -1114,6 +1050,12 @@ namespace v1
         mesh->clearBoneAssignments();
 
         mesh->prepareForShadowMapping( false );
+
+        if( mesh->isEdgeListBuilt() )
+        {
+            mesh->freeEdgeList();
+            mesh->buildEdgeList();
+        }
     }
     //-----------------------------------------------------------------------
     Resource* MeshManager::createImpl(const String& name, ResourceHandle handle, 

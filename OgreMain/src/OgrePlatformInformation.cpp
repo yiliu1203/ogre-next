@@ -40,38 +40,25 @@ THE SOFTWARE.
 #elif (OGRE_COMPILER == OGRE_COMPILER_GNUC || OGRE_COMPILER == OGRE_COMPILER_CLANG) && OGRE_PLATFORM != OGRE_PLATFORM_NACL
 #include <signal.h>
 #include <setjmp.h>
-#if OGRE_PLATFORM != OGRE_PLATFORM_WIN32
-    #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
-        #include <linux/sysctl.h>
-    #else
-        #include <sys/sysctl.h>
-    #endif
 #endif
 
-    #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
-        #include <cpu-features.h>
-    #elif OGRE_CPU == OGRE_CPU_ARM 
-        #if __MACH__
-            #include <mach/machine.h>
-            #ifndef CPU_SUBTYPE_ARM64_V8
-                #define CPU_SUBTYPE_ARM64_V8 ((cpu_subtype_t) 1)
-            #endif
-            #ifndef CPU_SUBTYPE_ARM_V8
-                #define CPU_SUBTYPE_ARM_V8 ((cpu_subtype_t) 13)
-            #endif
-        #endif
-    #endif
+#if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+    #include <linux/sysctl.h>
+    #include <cpu-features.h>
 #endif
-
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+    #include <sys/sysctl.h>
+    #include <mach/machine.h>
+#endif
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32 || OGRE_PLATFORM == OGRE_PLATFORM_WINRT
-    #include "windows.h"
+    #include <windows.h>
 #endif
 
 // Yes, I know, this file looks very ugly, but there aren't other ways to do it better.
 
 namespace Ogre {
 
-#if OGRE_CPU == OGRE_CPU_X86
+#if OGRE_CPU == OGRE_CPU_X86 && !defined(__e2k__)
 
     //---------------------------------------------------------------------
     // Struct for store CPUID instruction result, compiler-independent
@@ -548,8 +535,11 @@ namespace Ogre {
     {
         // Use preprocessor definitions to determine architecture and CPU features
         uint features = 0;
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-        int hasNEON;
+#if OGRE_ARCH_TYPE == OGRE_ARCHITECTURE_64
+        // ARM64 always has NEON
+        features |= PlatformInformation::CPU_FEATURE_NEON;
+#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+        int hasNEON = 0;
         size_t len = sizeof(size_t);
         sysctlbyname("hw.optional.neon", &hasNEON, &len, NULL, 0);
 
@@ -563,34 +553,51 @@ namespace Ogre {
     static String _detectCpuIdentifier(void)
     {
         String cpuID;
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-        // Get the size of the CPU subtype struct
-        size_t size;
-        sysctlbyname("hw.cpusubtype", NULL, &size, NULL, 0);
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+        // Get the CPU type
+        cpu_type_t cputype = 0;
+        size_t size = sizeof(cputype);
+        sysctlbyname("hw.cputype", &cputype, &size, NULL, 0);
 
-        // Get the ARM CPU subtype
+        // Get the CPU subtype
         cpu_subtype_t cpusubtype = 0;
+        size = sizeof(cpusubtype);
         sysctlbyname("hw.cpusubtype", &cpusubtype, &size, NULL, 0);
 
-        switch(cpusubtype)
+        static const char* armSubtypes[] = { // CPU_TYPE_ARM, CPU_SUBTYPE_ARM_XXX
+            "Unknown ARM", NULL, NULL, NULL,
+            NULL, "ARMv4T", "ARMv6", "ARMv5TEJ",
+            "ARM XScale", "ARMv7", "ARM Cortex-A9"/*V7F*/, "ARM Swift"/*V7S*/,
+            "ARMv7K", "ARMv8", "ARMv6M", "ARMv7M",
+            "ARMv7EM", "ARMv8M"
+        };
+        static const char* arm64Subtypes[] = { // CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_XXX
+            "Unknown ARM64", "ARM64v8", "ARM64E"
+        };
+        static const char* arm64_32Subtypes[] = { // CPU_TYPE_ARM64_32, CPU_SUBTYPE_ARM64_32_XXX
+            "Unknown ARM64_32", "ARM64_32v8"
+        };
+        
+        unsigned armSubtypesCount = sizeof(armSubtypes) / sizeof(armSubtypes[0]);
+        unsigned arm64SubtypesCount = sizeof(arm64Subtypes) / sizeof(arm64Subtypes[0]);
+        unsigned arm64_32SubtypesCount = sizeof(arm64_32Subtypes) / sizeof(arm64_32Subtypes[0]);
+
+        struct Helper{
+            static const char* getName(const char** names, unsigned count, unsigned idx){
+                return idx < count && names[idx] ? names[idx] : names[0];
+            }
+        };
+
+        switch(cputype)
         {
-            case CPU_SUBTYPE_ARM_V6:
-                cpuID = "ARMv6";
+            case CPU_TYPE_ARM:
+                cpuID = Helper::getName(armSubtypes, armSubtypesCount, cpusubtype);
                 break;
-            case CPU_SUBTYPE_ARM_V7:
-                cpuID = "ARMv7";
+            case CPU_TYPE_ARM64:
+                cpuID = Helper::getName(arm64Subtypes, arm64SubtypesCount, cpusubtype & ~CPU_SUBTYPE_MASK);
                 break;
-            case CPU_SUBTYPE_ARM_V7F:
-                cpuID = "ARM Cortex-A9";
-                break;
-            case CPU_SUBTYPE_ARM_V7S:
-                cpuID = "ARM Swift";
-                break;
-            case CPU_SUBTYPE_ARM_V8:
-                cpuID = "ARMv8";
-                break;
-            case CPU_SUBTYPE_ARM64_V8:
-                cpuID = "ARM64v8";
+            case CPU_TYPE_ARM64_32:
+                cpuID = Helper::getName(arm64_32Subtypes, arm64_32SubtypesCount, cpusubtype & ~CPU_SUBTYPE_MASK);
                 break;
             default:
                 cpuID = "Unknown ARM";
@@ -620,7 +627,55 @@ namespace Ogre {
         return cpuID;
     }
 
-#else   // OGRE_CPU == OGRE_CPU_MIPS
+#elif OGRE_CPU == OGRE_CPU_X86 && defined(__e2k__)  // MCST e2k (Elbrus 2000)
+
+    //---------------------------------------------------------------------
+    static uint _detectCpuFeatures(void)
+    {
+        // Use preprocessor definitions to determine architecture and CPU features
+        uint features = 0;
+        // MCST e2k (Elbrus 2000) architecture has half native / half software support of most Intel/AMD SIMD
+        // e.g. MMX/SSE/SSE2/SSE3/SSSE3/SSE4.1/SSE4.2/AES/AVX/AVX2 & 3DNow!/SSE4a/XOP/FMA4
+        features |= PlatformInformation::CPU_FEATURE_PRO;
+        features |= PlatformInformation::CPU_FEATURE_TSC;
+        features |= PlatformInformation::CPU_FEATURE_FPU;
+        features |= PlatformInformation::CPU_FEATURE_CMOV;
+#       if defined(__MMX__)
+            features |= PlatformInformation::CPU_FEATURE_MMX;
+#       endif
+#       if defined(__SSE__)
+            features |= PlatformInformation::CPU_FEATURE_MMXEXT;
+            features |= PlatformInformation::CPU_FEATURE_SSE;
+#       endif
+#       if defined(__SSE2__)
+            features |= PlatformInformation::CPU_FEATURE_SSE2;
+#       endif
+#       if defined(__SSE3__)
+            features |= PlatformInformation::CPU_FEATURE_SSE3;
+#       endif
+#       if defined(__3dNOW__)
+            features |= PlatformInformation::CPU_FEATURE_3DNOW;
+#       endif
+#       if defined(__3dNOW_A__)
+            features |= PlatformInformation::CPU_FEATURE_3DNOWEXT;
+#       endif
+        return features;
+    }
+    //---------------------------------------------------------------------
+    static String _detectCpuIdentifier(void)
+    {
+        String cpuID = __builtin_cpu_name();
+
+        return cpuID;
+    }
+    //---------------------------------------------------------------------
+    // Added for compatibility with x86 architecture in void PlatformInformation::log(Log* pLog) section
+    static int _isSupportCpuid(void)
+    {
+        return true;
+    }
+
+#else  // OGRE_CPU == OGRE_CPU_UNKNOWN
 
     //---------------------------------------------------------------------
     static uint _detectCpuFeatures(void)
@@ -726,11 +781,10 @@ namespace Ogre {
                 " *     NEON: " + StringConverter::toString(hasCpuFeature(CPU_FEATURE_NEON), true));
 #elif OGRE_CPU == OGRE_CPU_MIPS
         pLog->logMessage(
-                " *      MSA: " + StringConverter::toString(hasCpuFeature(CPU_FEATURE_MSA), true));#endif
+                " *      MSA: " + StringConverter::toString(hasCpuFeature(CPU_FEATURE_MSA), true));
 #endif
         pLog->logMessage("-------------------------");
 
     }
-
 
 }

@@ -33,6 +33,7 @@ THE SOFTWARE.
 #include "OgreMesh2Serializer.h"
 #include "OgreMeshManager2.h"
 #include "OgreMeshManager.h"
+#include "OgreMesh.h"
 #include "OgreHardwareBufferManager.h"
 #include "OgreIteratorWrappers.h"
 #include "OgreException.h"
@@ -61,7 +62,6 @@ namespace Ogre {
         : Resource(creator, name, handle, group, isManual, loader),
         mBoundRadius( 0.0f ),
         mLodStrategyName( LodStrategyManager::getSingleton().getDefaultStrategy()->getName() ),
-        mNumLods( 1 ),
         mVaoManager( vaoManager ),
         mVertexBufferDefaultType( BT_IMMUTABLE ),
         mIndexBufferDefaultType( BT_IMMUTABLE ),
@@ -250,7 +250,6 @@ namespace Ogre {
         destination->mSkeleton      = mSkeleton;
 
         destination->mLodStrategyName   = mLodStrategyName;
-        destination->mNumLods           = mNumLods;
         destination->mLodValues         = mLodValues;
 
         destination->mVertexBufferDefaultType   = mVertexBufferDefaultType;
@@ -360,7 +359,7 @@ namespace Ogre {
     //---------------------------------------------------------------------
     ushort Mesh::getNumLodLevels(void) const
     {
-        return mNumLods;
+        return static_cast<uint16>( mLodValues.size() );
     }
     //---------------------------------------------------------------------
     void Mesh::_setLodInfo(unsigned short numLevels)

@@ -485,12 +485,11 @@ namespace Ogre
     {
         D3D11WindowSwapChainBased::destroy();
 
-        if( !mHwnd )
-            return;
-
-        WindowEventUtilities::_removeRenderWindow(this);
-
-        DestroyWindow( mHwnd );
+        if( mHwnd && !mIsExternal )
+        {
+            WindowEventUtilities::_removeRenderWindow(this);
+            DestroyWindow( mHwnd );
+        }
         mHwnd = 0;
     }
     //-----------------------------------------------------------------------------------
@@ -498,7 +497,7 @@ namespace Ogre
     {
         if( mHwnd && !mRequestedFullscreenMode )
         {
-            SetWindowPos( mHwnd, 0, top, left, 0, 0,
+            SetWindowPos( mHwnd, 0, left, top, 0, 0,
                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
         }
     }
@@ -678,7 +677,7 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void D3D11WindowHwnd::getCustomAttribute( IdString name, void* pData )
     {
-        if( name == "WINDOW" )
+        if( name == "WINDOW" || name == "RENDERDOC_WINDOW" )
         {
             HWND *pWnd = (HWND*)pData;
             *pWnd = mHwnd;

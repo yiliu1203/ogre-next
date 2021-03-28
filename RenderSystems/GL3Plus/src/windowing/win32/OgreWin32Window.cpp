@@ -671,7 +671,9 @@ namespace Ogre
         mTexture->setSampleDescription( mSampleDescription );
         mDepthBuffer->setSampleDescription( mSampleDescription );
 
-        setFinalResolution( mRequestedWidth, mRequestedHeight );
+        RECT rc;
+        GetClientRect( mHwnd, &rc );  // width and height represent interior drawable area
+        setFinalResolution( rc.right - rc.left, rc.bottom - rc.top );
 
         if( mDepthBuffer )
         {
@@ -751,7 +753,7 @@ namespace Ogre
     {
         if( mHwnd && !mRequestedFullscreenMode )
         {
-            SetWindowPos( mHwnd, 0, top, left, 0, 0,
+            SetWindowPos( mHwnd, 0, left, top, 0, 0,
                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
         }
     }
@@ -1087,11 +1089,16 @@ namespace Ogre
             *static_cast<GL3PlusContext**>(pData) = mContext;
             return;
         }
-        else if( name == "WINDOW" )
+        else if( name == "WINDOW" || name == "RENDERDOC_WINDOW" )
         {
             HWND *pHwnd = (HWND*)pData;
             *pHwnd = getWindowHandle();
             return;
-        } 
+        }
+        else if( name == "RENDERDOC_DEVICE" )
+        {
+            *static_cast<HGLRC*>(pData) = mContext->getHGLRC();
+            return;
+        }
     }
 }

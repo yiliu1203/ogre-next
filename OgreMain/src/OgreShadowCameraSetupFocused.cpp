@@ -193,12 +193,15 @@ namespace Ogre
         if( casterBox.isNull() )
         {
             texCam->setProjectionType( PT_ORTHOGRAPHIC );
-            //Anything will do, there are no casters. But we must ensure depth of the receiver
-            //doesn't become negative else a shadow square will appear (i.e. "the sun is below the floor")
-            const Real farDistance = Ogre::min( cam->getFarClipDistance(),
-                                                light->getShadowFarDistance() );
+            // Anything will do, there are no casters. But we must ensure depth of the receiver
+            // doesn't become negative else a shadow square will appear (i.e. "the sun is below the
+            // floor"). On the other hand our implementation of the exponential shadow maps is tolerable
+            // for negative depths but intolerable for too large positive
+            const Real farDistance =
+                std::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
             texCam->setPosition( cam->getDerivedPosition() -
-                                 light->getDerivedDirection() * farDistance );
+                                 light->getDerivedDirection() *
+                                     ( mUseEsm ? -farDistance : farDistance ) );
             texCam->setOrthoWindow( 1, 1 );
             texCam->setNearClipDistance( 1.0f );
             texCam->setFarClipDistance( 1.1f );
@@ -211,7 +214,7 @@ namespace Ogre
         }
 
         const Node *lightNode = light->getParentNode();
-        const Real farDistance= Ogre::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
+        const Real farDistance= std::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
         const Quaternion scalarLightSpaceToWorld( lightNode->_getDerivedOrientation() );
         const Quaternion scalarWorldToLightSpace( scalarLightSpaceToWorld.Inverse() );
         ArrayQuaternion worldToLightSpace;
@@ -288,13 +291,13 @@ namespace Ogre
             vMax.z += 5.0f; // Backwards is towards +Z!
         }
 
-        vMin.z = Ogre::min( vMin.z, vMinCamFrustumLS.z );
+        vMin.z = std::min( vMin.z, vMinCamFrustumLS.z );
 
         const RenderSystemCapabilities *caps = Root::getSingleton().getRenderSystem()->getCapabilities();
         if( caps->hasCapability( RSC_DEPTH_CLAMP ) )
         {
             // We can only do shadow pancaking (increasing precision) if depth clamp is supported
-            vMax.z = Ogre::max( vMax.z, vMaxCamFrustumLS.z );
+            vMax.z = std::max( vMax.z, vMaxCamFrustumLS.z );
         }
 
         //Some padding
@@ -313,8 +316,8 @@ namespace Ogre
         const Real worldTexelSizeY = ( texCam->getOrthoWindowHeight() ) / viewportRealSize.y;
 
         // snap to nearest texel
-        shadowCameraPos.x -= fmod( shadowCameraPos.x, worldTexelSizeX );
-        shadowCameraPos.y -= fmod( shadowCameraPos.y, worldTexelSizeY );
+        shadowCameraPos.x -= std::fmod( shadowCameraPos.x, worldTexelSizeX );
+        shadowCameraPos.y -= std::fmod( shadowCameraPos.y, worldTexelSizeY );
 
         //Go back from light space to world space
         shadowCameraPos = scalarLightSpaceToWorld * shadowCameraPos;

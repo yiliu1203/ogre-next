@@ -46,19 +46,21 @@ namespace v1
             mScale( Vector3::UNIT_SCALE ),
             mQuad( bQuad )
     {
-        initRectangle2D();
+        _restoreManualHardwareResources();
 
         //By default we want Rectangle2Ds to still work in wireframe mode
         setPolygonModeOverrideable( false );
     }
     //-----------------------------------------------------------------------------------
-    void Rectangle2D::initRectangle2D(void)
+    void Rectangle2D::_restoreManualHardwareResources()
     {
+        assert(!mRenderOp.vertexData);
+
         // use identity projection and view matrices
         mUseIdentityProjection  = true;
         mUseIdentityView        = true;
 
-        mRenderOp.vertexData = OGRE_NEW VertexData();
+        mRenderOp.vertexData = OGRE_NEW VertexData(NULL);
 
         mRenderOp.indexData                 = 0;
         mRenderOp.vertexData->vertexCount   = mQuad ? 4 : 3;
@@ -78,7 +80,7 @@ namespace v1
         decl->addElement( 0, offset, VET_FLOAT2, VES_TEXTURE_COORDINATES );
 
         HardwareVertexBufferSharedPtr vbuf = 
-            HardwareBufferManager::getSingleton().createVertexBuffer(
+            mRenderOp.vertexData->_getHardwareBufferManager()->createVertexBuffer(
             decl->getVertexSize( 0 ), mRenderOp.vertexData->vertexCount,
             HardwareBuffer::HBU_STATIC_WRITE_ONLY );
 
@@ -153,7 +155,7 @@ namespace v1
         //Add the normals.
         decl->addElement( 1, 0, VET_FLOAT3, VES_NORMAL );
 
-        vbuf = HardwareBufferManager::getSingleton().createVertexBuffer(
+        vbuf = mRenderOp.vertexData->_getHardwareBufferManager()->createVertexBuffer(
                 decl->getVertexSize( 1 ), mRenderOp.vertexData->vertexCount,
                 HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE );
 
@@ -183,7 +185,13 @@ namespace v1
     //-----------------------------------------------------------------------------------
     Rectangle2D::~Rectangle2D()
     {
+        _releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void Rectangle2D::_releaseManualHardwareResources()
+    {
         OGRE_DELETE mRenderOp.vertexData;
+        mRenderOp.vertexData = 0;
     }
     //-----------------------------------------------------------------------------------
     void Rectangle2D::setCorners( Real left, Real top, Real width, Real height )

@@ -68,7 +68,7 @@ THE SOFTWARE.
 //#define OGRE_FORCE_TEXTURE_STREAMING_ON_MAIN_THREAD 1
 //#define OGRE_DEBUG_MEMORY_CONSUMPTION 1
 
-#define TODO_grow_pool 1
+#define TODO_grow_pool
 
 namespace Ogre
 {
@@ -87,6 +87,7 @@ namespace Ogre
         mTryLockMutexFailureCount( 0u ),
         mTryLockMutexFailureLimit( 1200u ),
         mAddedNewLoadRequests( false ),
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion( false ),
         mEntriesToProcessPerIteration( 3u ),
         mMaxPreloadBytes( 256u * 1024u * 1024u ), //A value of 512MB begins to shake driver bugs.
         mTextureGpuManagerListener( &sDefaultTextureGpuManagerListener ),
@@ -162,11 +163,7 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     TextureGpuManager::~TextureGpuManager()
     {
-        mShuttingDown = true;
-#if OGRE_PLATFORM != OGRE_PLATFORM_EMSCRIPTEN && !OGRE_FORCE_TEXTURE_STREAMING_ON_MAIN_THREAD
-        mWorkerWaitableEvent.wake();
-        Threads::WaitForThreads( 1u, &mWorkerThread );
-#endif
+        shutdown();
 
         assert( mAvailableStagingTextures.empty() && "Derived class didn't call destroyAll!" );
         assert( mUsedStagingTextures.empty() && "Derived class didn't call destroyAll!" );
@@ -182,16 +179,64 @@ namespace Ogre
         mTextureGpuManagerListener = 0;
     }
     //-----------------------------------------------------------------------------------
+    void TextureGpuManager::shutdown(void)
+    {
+        if( !mShuttingDown )
+        {
+            mShuttingDown = true;
+#if OGRE_PLATFORM != OGRE_PLATFORM_EMSCRIPTEN && !OGRE_FORCE_TEXTURE_STREAMING_ON_MAIN_THREAD
+            mWorkerWaitableEvent.wake();
+            Threads::WaitForThreads( 1u, &mWorkerThread );
+#endif
+        }
+    }
+    //-----------------------------------------------------------------------------------
     void TextureGpuManager::destroyAll(void)
     {
-        waitForStreamingCompletion();
-
         mMutex.lock();
+        abortAllRequests();
         destroyAllStagingBuffers();
         destroyAllAsyncTextureTicket();
         destroyAllTextures();
         destroyAllPools();
         mMutex.unlock();
+    }
+    //-----------------------------------------------------------------------------------
+    void TextureGpuManager::abortAllRequests( void )
+    {
+        ThreadData &workerData = mThreadData[c_workerThread];
+        ThreadData &mainData = mThreadData[c_mainThread];
+        mLoadRequestsMutex.lock();
+        mainData.loadRequests.clear();  // TODO: if( loadRequest.autoDeleteImage ) delete loadRequest.image;
+        mainData.objCmdBuffer->clear();
+        mainData.usedStagingTex.clear();
+        workerData.loadRequests.clear();  // TODO: if( loadRequest.autoDeleteImage ) delete loadRequest.image;
+        workerData.objCmdBuffer->clear();
+        workerData.usedStagingTex.clear();
+        mLoadRequestsMutex.unlock();
+
+        while( !mStreamingData.queuedImages.empty() )
+        {
+            TextureFilter::FilterBase::destroyFilters( mStreamingData.queuedImages.back().filters );
+            mStreamingData.queuedImages.pop_back();
+        }
+
+        {
+            // These partial images were supposed to transfer ownership of sysRamPtr to TextureGpu
+            // But we now must free these ptrs ourselves
+            PartialImageMap::const_iterator itor = mStreamingData.partialImages.begin();
+            PartialImageMap::const_iterator endt = mStreamingData.partialImages.end();
+
+            while( itor != endt )
+            {
+                if( itor->second.sysRamPtr )
+                    OGRE_FREE_SIMD( itor->second.sysRamPtr, MEMCATEGORY_RESOURCE );
+                ++itor;
+            }
+            mStreamingData.partialImages.clear();
+        }
+
+        mScheduledTasks.clear();
     }
     //-----------------------------------------------------------------------------------
     void TextureGpuManager::destroyAllStagingBuffers(void)
@@ -465,6 +510,9 @@ namespace Ogre
         }
 
         texture->notifyAllListenersTextureChanged( TextureGpuListener::Deleted );
+
+        BarrierSolver &barrierSolver = mRenderSystem->getBarrierSolver();
+        barrierSolver.textureDeleted( texture );
 
         delete texture;
         mEntriesMutex.lock();
@@ -806,6 +854,21 @@ namespace Ogre
         savedTextures.insert( resourceName );
     }
     //-----------------------------------------------------------------------------------
+    bool TextureGpuManager::checkSupport( PixelFormatGpu format, uint32 textureFlags ) const
+    {
+        OGRE_ASSERT_LOW(
+            textureFlags != TextureFlags::NotTexture &&
+            "Invalid textureFlags combination. Asking to check if format is supported to do nothing" );
+
+        if( textureFlags & TextureFlags::AllowAutomipmaps )
+        {
+            if( !PixelFormatGpuUtils::supportsHwMipmaps( format ) )
+                return false;
+        }
+
+        return true;
+    }
+    //-----------------------------------------------------------------------------------
     TextureGpuManager::MetadataCacheEntry::MetadataCacheEntry() :
         width( 0 ),
         height( 0 ),
@@ -1121,7 +1184,7 @@ namespace Ogre
         logMgr.logMessage( text.c_str() );
     }
     //-----------------------------------------------------------------------------------
-    void TextureGpuManager::dumpMemoryUsage( Log* log ) const
+    void TextureGpuManager::dumpMemoryUsage( Log *log, uint32 mask ) const
     {
         Log* logActual = log == NULL ? LogManager::getSingleton().getDefaultLog() : log;
 
@@ -1183,7 +1246,7 @@ namespace Ogre
 
         logActual->logMessage(
                     "|Alias|Resource Name|Width|Height|Depth|Num Slices|Format|Mipmaps|MSAA|Size in bytes|"
-                    "RTT|UAV|Manual|MSAA Explicit|Reinterpretable|AutomaticBatched",
+                    "RTT|UAV|Manual|MSAA Explicit|Reinterpretable|AutomaticBatched|Residency",
                     LML_CRITICAL );
 
         ResourceEntryMap::const_iterator itEntry = mEntries.begin();
@@ -1193,6 +1256,12 @@ namespace Ogre
         {
             const ResourceEntry &entry = itEntry->second;
             text.clear();
+
+            if( !( ( 1u << entry.texture->getResidencyStatus() ) & mask ) )
+            {
+                ++itEntry;
+                continue;
+            }
 
             const size_t bytesTexture = entry.texture->getSizeBytes();
 
@@ -1209,7 +1278,8 @@ namespace Ogre
                     entry.texture->_isManualTextureFlagPresent(), "|" );
             text.a( entry.texture->hasMsaaExplicitResolves(), "|",
                     entry.texture->isReinterpretable(), "|",
-                    entry.texture->hasAutomaticBatching() );
+                    entry.texture->hasAutomaticBatching(), "|",
+                    GpuResidency::toString( entry.texture->getResidencyStatus()) );
 
             if( !entry.texture->hasAutomaticBatching() )
                 bytesOutsidePool += bytesTexture;
@@ -1584,6 +1654,7 @@ namespace Ogre
         }
 
         mAddedNewLoadRequests = true;
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = true;
         ThreadData &mainData = mThreadData[c_mainThread];
         mLoadRequestsMutex.lock();
             mainData.loadRequests.push_back( LoadRequest( name, archive, loadingListener, image,
@@ -1701,6 +1772,7 @@ namespace Ogre
         texture->_transitionTo( GpuResidency::Resident, texture->_getSysRamCopy( 0 ), false );
 
         mAddedNewLoadRequests = true;
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = true;
         ThreadData &mainData = mThreadData[c_mainThread];
         mLoadRequestsMutex.lock();
             mainData.loadRequests.push_back( LoadRequest( name, 0, 0, image, texture,
@@ -3193,6 +3265,7 @@ namespace Ogre
           dumpStats();
 #endif
         }
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = false;
     }
     //-----------------------------------------------------------------------------------
     void TextureGpuManager::_waitFor( TextureGpu *texture, bool metadataOnly )
